@@ -1,4 +1,5 @@
 use eframe::egui;
+use operad::{ScenePrimitive, UiPoint};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -6,6 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::app::{AppState, AudioAssetKind};
 use crate::midi::{LumatoneMap, MidiEvent};
+use crate::operad_bridge;
+use crate::operad_ui;
 use crate::project::{ClipNote, QuantizeGrid};
 use crate::scale::ScaleState;
 use crate::synth::Waveform;
@@ -85,34 +88,34 @@ impl eframe::App for AppState {
 
 fn draw_menu_bar(ctx: &egui::Context, app: &mut AppState) {
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open Project...").clicked() {
                     open_project_file(app);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Save Project").clicked() {
                     if !app.save_project() {
                         save_project_as(app);
                     }
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Save Project As...").clicked() {
                     save_project_as(app);
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Open Scala File...").clicked() {
                     open_scala_file(app, true);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Take Screenshot").clicked() {
                     request_screenshot(ctx, app, false);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Save Settings").clicked() {
                     app.persist_settings_with_status();
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -126,14 +129,14 @@ fn draw_menu_bar(ctx: &egui::Context, app: &mut AppState) {
                     .clicked()
                 {
                     app.undo_project_edit();
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui
                     .add_enabled(app.can_redo_project_edit(), egui::Button::new("Redo"))
                     .clicked()
                 {
                     app.redo_project_edit();
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 let has_selection = app.selected_clip_note.is_some();
@@ -142,14 +145,14 @@ fn draw_menu_bar(ctx: &egui::Context, app: &mut AppState) {
                     .clicked()
                 {
                     app.delete_selected_clip_note();
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui
                     .add_enabled(has_selection, egui::Button::new("Duplicate Note"))
                     .clicked()
                 {
                     app.duplicate_selected_clip_note();
-                    ui.close_menu();
+                    ui.close();
                 }
             });
 
@@ -183,18 +186,61 @@ fn draw_toolbar(ctx: &egui::Context, app: &mut AppState) {
     egui::TopBottomPanel::top("toolbar")
         .exact_height(40.0)
         .show(ctx, |ui| {
-            ui.horizontal_centered(|ui| {
-                if ui.button("Test A4").clicked() {
-                    app.test_tone();
+            let (rect, response) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), ui.available_height()),
+                egui::Sense::click(),
+            );
+            let mut document = operad_ui::document(rect.width(), rect.height());
+            let row = operad_ui::panel_row(&mut document, "toolbar.row");
+            operad_ui::button(
+                &mut document,
+                row,
+                "toolbar.test_a4",
+                "Test A4",
+                74.0,
+                false,
+                true,
+            );
+            operad_ui::spacer(&mut document, row, "toolbar.space.1", 6.0);
+            operad_ui::button(
+                &mut document,
+                row,
+                "toolbar.all_notes_off",
+                "All Notes Off",
+                112.0,
+                false,
+                true,
+            );
+            operad_ui::spacer(&mut document, row, "toolbar.space.2", 10.0);
+            operad_ui::divider(&mut document, row, "toolbar.divider.1");
+            operad_ui::spacer(&mut document, row, "toolbar.space.3", 10.0);
+            operad_ui::label(
+                &mut document,
+                row,
+                "toolbar.audio",
+                format!("Audio: {}", app.connected_audio_output),
+                260.0,
+                false,
+            );
+            operad_ui::spacer(&mut document, row, "toolbar.space.4", 10.0);
+            operad_ui::divider(&mut document, row, "toolbar.divider.2");
+            operad_ui::spacer(&mut document, row, "toolbar.space.5", 10.0);
+            operad_ui::mono_label(
+                &mut document,
+                row,
+                "toolbar.voices",
+                format!("Voices: {}", app.synth.active_voice_count()),
+                96.0,
+            );
+            if operad_bridge::compute_and_paint_document(ui, rect, &mut document)
+                && let Some(clicked) = operad_bridge::clicked_node_name(&response, rect, &document)
+            {
+                match clicked.as_str() {
+                    "toolbar.test_a4" => app.test_tone(),
+                    "toolbar.all_notes_off" => app.all_notes_off(),
+                    _ => {}
                 }
-                if ui.button("All Notes Off").clicked() {
-                    app.all_notes_off();
-                }
-                ui.separator();
-                ui.label(format!("Audio: {}", app.connected_audio_output));
-                ui.separator();
-                ui.label(format!("Voices: {}", app.synth.active_voice_count()));
-            });
+            }
         });
 }
 
@@ -202,9 +248,21 @@ fn draw_status_bar(ctx: &egui::Context, app: &AppState) {
     egui::TopBottomPanel::bottom("status_bar")
         .exact_height(28.0)
         .show(ctx, |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.label(format!("Status: {}", app.last_status));
-            });
+            let (rect, _response) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), ui.available_height()),
+                egui::Sense::hover(),
+            );
+            let mut document = operad_ui::document(rect.width(), rect.height());
+            let row = operad_ui::panel_row(&mut document, "status.row");
+            operad_ui::label(
+                &mut document,
+                row,
+                "status.message",
+                format!("Status: {}", app.last_status),
+                rect.width().max(1.0) - 16.0,
+                false,
+            );
+            operad_bridge::compute_and_paint_document(ui, rect, &mut document);
         });
 }
 
@@ -354,13 +412,13 @@ fn draw_tuning_menu(ui: &mut egui::Ui, app: &mut AppState) {
         .show(ui, |ui| {
             ui.label("Root MIDI");
             changed |= ui
-                .add(egui::DragValue::new(&mut root_midi).clamp_range(0..=511))
+                .add(egui::DragValue::new(&mut root_midi).range(0..=511))
                 .changed();
             ui.end_row();
 
             ui.label("Base Hz");
             changed |= ui
-                .add(egui::DragValue::new(&mut base_freq).clamp_range(20.0..=20000.0))
+                .add(egui::DragValue::new(&mut base_freq).range(20.0..=20000.0))
                 .changed();
             ui.end_row();
         });
@@ -418,7 +476,7 @@ fn draw_lumatone_menu(ui: &mut egui::Ui, app: &mut AppState) {
     }
     if ui.button("Open Key Map...").clicked() {
         open_lumatone_file(app);
-        ui.close_menu();
+        ui.close();
     }
     if ui.button("Reload Presets").clicked() {
         app.reload_lumatone_presets();
@@ -435,55 +493,52 @@ fn draw_lumatone_menu(ui: &mut egui::Ui, app: &mut AppState) {
 }
 
 fn draw_scale_library_panel(ui: &mut egui::Ui, app: &mut AppState) {
-    ui.label("Scales");
-    ui.horizontal(|ui| {
-        if ui.button("Open").clicked() {
-            open_scala_file(app, true);
+    draw_operad_panel_title(ui, "scale.library.title", "Scales");
+    if let Some(action) = draw_operad_scale_library_actions(ui) {
+        match action.as_str() {
+            "scale.library.open" => open_scala_file(app, true),
+            "scale.library.load" => app.load_selected_library_scale(),
+            "scale.library.remove" => app.remove_selected_library_scale(),
+            _ => {}
         }
-        if ui.button("Load").clicked() {
-            app.load_selected_library_scale();
-        }
-        if ui.button("Remove").clicked() {
-            app.remove_selected_library_scale();
-        }
-    });
+    }
 
-    ui.separator();
     let library = app.scale_library.clone();
     egui::ScrollArea::vertical()
-        .id_source("scale_browser_scroll")
+        .id_salt("scale_browser_scroll")
         .max_height(180.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
             for (idx, item) in library.iter().enumerate() {
                 let selected = app.selected_scale_library == idx;
-                if ui.selectable_label(selected, &item.name).clicked() {
+                if draw_operad_select_row(
+                    ui,
+                    &format!("scale.library.item.{idx}"),
+                    &item.name,
+                    selected,
+                ) {
                     app.selected_scale_library = idx;
                 }
             }
             if library.is_empty() {
-                ui.label("No scales");
+                draw_operad_panel_title(ui, "scale.library.empty", "No scales");
             }
         });
 
-    ui.separator();
     draw_audio_assets_browser(ui, app);
 }
 
 fn draw_audio_assets_browser(ui: &mut egui::Ui, app: &mut AppState) {
-    ui.horizontal_wrapped(|ui| {
-        for kind in AudioAssetKind::all() {
-            ui.selectable_value(&mut app.selected_audio_asset_kind, kind, kind.label());
+    if let Some(kind) = draw_operad_asset_kind_row(ui, app.selected_audio_asset_kind) {
+        app.selected_audio_asset_kind = kind;
+    }
+    if let Some(action) = draw_operad_audio_asset_actions(ui) {
+        match action.as_str() {
+            "asset.import" => import_audio_asset(app),
+            "asset.refresh" => app.refresh_audio_assets(),
+            _ => {}
         }
-    });
-    ui.horizontal(|ui| {
-        if ui.button("Import").clicked() {
-            import_audio_asset(app);
-        }
-        if ui.button("Refresh").clicked() {
-            app.refresh_audio_assets();
-        }
-    });
+    }
 
     let kind = app.selected_audio_asset_kind;
     let assets: Vec<_> = app
@@ -495,7 +550,7 @@ fn draw_audio_assets_browser(ui: &mut egui::Ui, app: &mut AppState) {
         .collect();
 
     egui::ScrollArea::vertical()
-        .id_source("audio_asset_browser_scroll")
+        .id_salt("audio_asset_browser_scroll")
         .show(ui, |ui| {
             for (idx, item) in &assets {
                 let label = if item.is_dir {
@@ -503,27 +558,166 @@ fn draw_audio_assets_browser(ui: &mut egui::Ui, app: &mut AppState) {
                 } else {
                     item.name.clone()
                 };
-                if ui
-                    .selectable_label(app.selected_audio_asset == Some(*idx), label)
-                    .clicked()
-                {
+                if draw_operad_select_row(
+                    ui,
+                    &format!("asset.item.{idx}"),
+                    &label,
+                    app.selected_audio_asset == Some(*idx),
+                ) {
                     app.select_audio_asset(*idx);
                 }
             }
             if assets.is_empty() {
-                ui.label(format!(
-                    "Drop files in audio_assets/{}",
-                    kind.label().to_lowercase()
-                ));
+                draw_operad_panel_title(
+                    ui,
+                    "asset.empty",
+                    format!("Drop files in audio_assets/{}", kind.label().to_lowercase()),
+                );
             }
         });
 
     if let Some(asset) = app.selected_audio_asset_item()
         && asset.kind == kind
     {
-        ui.separator();
-        ui.small(asset.path.display().to_string());
+        draw_operad_panel_title(ui, "asset.path", asset.path.display().to_string());
     }
+}
+
+fn draw_operad_panel_title(ui: &mut egui::Ui, name: &str, text: impl Into<String>) {
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, name);
+    operad_ui::label(
+        &mut document,
+        row,
+        &format!("{name}.label"),
+        text,
+        rect.width().max(1.0) - 16.0,
+        true,
+    );
+    operad_bridge::compute_and_paint_document(ui, rect, &mut document);
+}
+
+fn draw_operad_scale_library_actions(ui: &mut egui::Ui) -> Option<String> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "scale.library.actions");
+    operad_ui::button(
+        &mut document,
+        row,
+        "scale.library.open",
+        "Open",
+        64.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "scale.library.actions.space.1", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "scale.library.load",
+        "Load",
+        64.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "scale.library.actions.space.2", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "scale.library.remove",
+        "Remove",
+        76.0,
+        false,
+        true,
+    );
+    if operad_bridge::compute_and_paint_document(ui, rect, &mut document) {
+        operad_bridge::clicked_node_name(&response, rect, &document)
+    } else {
+        None
+    }
+}
+
+fn draw_operad_audio_asset_actions(ui: &mut egui::Ui) -> Option<String> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "asset.actions");
+    operad_ui::button(
+        &mut document,
+        row,
+        "asset.import",
+        "Import",
+        76.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "asset.actions.space.1", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "asset.refresh",
+        "Refresh",
+        82.0,
+        false,
+        true,
+    );
+    if operad_bridge::compute_and_paint_document(ui, rect, &mut document) {
+        operad_bridge::clicked_node_name(&response, rect, &document)
+    } else {
+        None
+    }
+}
+
+fn draw_operad_asset_kind_row(
+    ui: &mut egui::Ui,
+    selected_kind: AudioAssetKind,
+) -> Option<AudioAssetKind> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 38.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "asset.kind.row");
+    for (idx, kind) in AudioAssetKind::all().iter().copied().enumerate() {
+        operad_ui::button(
+            &mut document,
+            row,
+            &format!("asset.kind.{kind:?}"),
+            kind.label(),
+            82.0,
+            kind == selected_kind,
+            true,
+        );
+        if idx + 1 < AudioAssetKind::all().len() {
+            operad_ui::spacer(&mut document, row, &format!("asset.kind.space.{idx}"), 5.0);
+        }
+    }
+    if !operad_bridge::compute_and_paint_document(ui, rect, &mut document) {
+        return None;
+    }
+    let clicked = operad_bridge::clicked_node_name(&response, rect, &document)?;
+    AudioAssetKind::all()
+        .into_iter()
+        .find(|kind| clicked == format!("asset.kind.{kind:?}"))
+}
+
+fn draw_operad_select_row(ui: &mut egui::Ui, name: &str, label: &str, selected: bool) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, &format!("{name}.row"));
+    operad_ui::button(
+        &mut document,
+        row,
+        name,
+        label,
+        (rect.width() - 12.0).max(1.0),
+        selected,
+        true,
+    );
+    operad_bridge::compute_and_paint_document(ui, rect, &mut document)
+        && operad_bridge::clicked_node_name(&response, rect, &document).as_deref() == Some(name)
 }
 
 fn draw_inspector_panel(ui: &mut egui::Ui, app: &mut AppState) {
@@ -586,7 +780,13 @@ fn draw_mapping_capture_panel(ui: &mut egui::Ui, app: &mut AppState) {
             .add_enabled(!events.is_empty(), egui::Button::new("Copy All"))
             .clicked()
         {
-            ui.output_mut(|output| output.copied_text = capture_events_to_tsv(&events));
+            ui.output_mut(|output| {
+                output
+                    .commands
+                    .push(egui::OutputCommand::CopyText(capture_events_to_tsv(
+                        &events,
+                    )));
+            });
             app.last_status = format!("Copied {} mapping capture rows", events.len());
         }
     });
@@ -647,21 +847,7 @@ fn draw_workspace(ui: &mut egui::Ui, app: &mut AppState) {
 
     ui.vertical(|ui| {
         draw_scale_header(ui, app, &scale);
-        ui.separator();
-        ui.horizontal(|ui| {
-            if let Some(map) = &map {
-                ui.label(format!("{} keys", map.len()));
-            }
-            if let Some(path) = &app.lumatone_path {
-                ui.separator();
-                ui.label(format!(
-                    "Preset: {}",
-                    path.file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or("Unknown")
-                ));
-            }
-        });
+        draw_lumatone_status_row(ui, app, map.as_ref());
         let grid_max_height = (ui.available_height() - 88.0).clamp(140.0, 380.0);
         egui::ScrollArea::both()
             .max_height(grid_max_height)
@@ -698,50 +884,54 @@ fn draw_transport_panel(ui: &mut egui::Ui, app: &mut AppState) {
         )
     };
 
+    if let Some(action) = draw_operad_transport_actions(
+        ui,
+        playing,
+        recording,
+        beat,
+        bpm,
+        loop_beats,
+        overdub,
+        quantize_on_record,
+        metronome_enabled,
+        quantize_grid,
+    ) {
+        match action.as_str() {
+            "transport.play" => {
+                if playing {
+                    app.stop_transport();
+                } else {
+                    app.play_transport();
+                }
+            }
+            "transport.record" => {
+                if recording {
+                    app.stop_recording();
+                } else {
+                    app.start_recording();
+                }
+            }
+            "transport.clear_clip" => app.clear_clip(),
+            "transport.quantize_clip" => app.quantize_clip(),
+            "transport.overdub" => overdub = !overdub,
+            "transport.quantize_record" => quantize_on_record = !quantize_on_record,
+            "transport.metronome" => metronome_enabled = !metronome_enabled,
+            "transport.quantize_grid" => quantize_grid = next_quantize_grid(quantize_grid),
+            _ => {}
+        }
+    }
+
     ui.horizontal_wrapped(|ui| {
-        if ui.button(if playing { "Stop" } else { "Play" }).clicked() {
-            if playing {
-                app.stop_transport();
-            } else {
-                app.play_transport();
-            }
-        }
-        if ui
-            .button(if recording { "Stop Rec" } else { "Record" })
-            .clicked()
-        {
-            if recording {
-                app.stop_recording();
-            } else {
-                app.start_recording();
-            }
-        }
-        if ui.button("Clear Clip").clicked() {
-            app.clear_clip();
-        }
-        if ui.button("Quantize Clip").clicked() {
-            app.quantize_clip();
-        }
-        ui.separator();
-        ui.label(format!("Beat {:.2}", beat + 1.0));
         ui.add(
             egui::DragValue::new(&mut bpm)
-                .clamp_range(20.0..=320.0)
+                .range(20.0..=320.0)
                 .prefix("BPM "),
         );
         ui.add(
             egui::DragValue::new(&mut loop_beats)
-                .clamp_range(1.0..=128.0)
+                .range(1.0..=128.0)
                 .prefix("Loop "),
         );
-        ui.checkbox(&mut overdub, "Overdub");
-        ui.checkbox(&mut quantize_on_record, "Quantize Record");
-        ui.checkbox(&mut metronome_enabled, "Metronome");
-        ui.menu_button(format!("Quantize {}", quantize_grid.as_str()), |ui| {
-            for grid in QuantizeGrid::all() {
-                ui.radio_value(&mut quantize_grid, grid, grid.as_str());
-            }
-        });
     });
 
     let mut project = app.music_project.lock();
@@ -751,6 +941,134 @@ fn draw_transport_panel(ui: &mut egui::Ui, app: &mut AppState) {
     project.transport.quantize_on_record = quantize_on_record;
     project.transport.metronome_enabled = metronome_enabled;
     project.transport.quantize_grid = quantize_grid;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_operad_transport_actions(
+    ui: &mut egui::Ui,
+    playing: bool,
+    recording: bool,
+    beat: f32,
+    bpm: f32,
+    loop_beats: f32,
+    overdub: bool,
+    quantize_on_record: bool,
+    metronome_enabled: bool,
+    quantize_grid: QuantizeGrid,
+) -> Option<String> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "transport.row");
+    operad_ui::button(
+        &mut document,
+        row,
+        "transport.play",
+        if playing { "Stop" } else { "Play" },
+        64.0,
+        playing,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.1", 6.0);
+    operad_ui::record_button(
+        &mut document,
+        row,
+        "transport.record",
+        if recording { "Stop Rec" } else { "Record" },
+        recording,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.2", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "transport.clear_clip",
+        "Clear Clip",
+        82.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.3", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "transport.quantize_clip",
+        "Quantize",
+        78.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.4", 10.0);
+    operad_ui::divider(&mut document, row, "transport.divider.1");
+    operad_ui::spacer(&mut document, row, "transport.space.5", 10.0);
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "transport.beat",
+        format!("Beat {:.2}", beat + 1.0),
+        86.0,
+    );
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "transport.bpm",
+        format!("{bpm:.1} BPM"),
+        92.0,
+    );
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "transport.loop",
+        format!("{loop_beats:.0} beat loop"),
+        100.0,
+    );
+    operad_ui::button(
+        &mut document,
+        row,
+        "transport.quantize_grid",
+        format!("Q {}", quantize_grid.as_str()),
+        64.0,
+        quantize_grid != QuantizeGrid::Off,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.6", 8.0);
+    operad_ui::checkbox(
+        &mut document,
+        row,
+        "transport.overdub",
+        "Overdub",
+        overdub,
+        96.0,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.7", 6.0);
+    operad_ui::checkbox(
+        &mut document,
+        row,
+        "transport.quantize_record",
+        "Quantize Rec",
+        quantize_on_record,
+        116.0,
+    );
+    operad_ui::spacer(&mut document, row, "transport.space.8", 6.0);
+    operad_ui::checkbox(
+        &mut document,
+        row,
+        "transport.metronome",
+        "Metronome",
+        metronome_enabled,
+        104.0,
+    );
+
+    if operad_bridge::compute_and_paint_document(ui, rect, &mut document) {
+        operad_bridge::clicked_node_name(&response, rect, &document)
+    } else {
+        None
+    }
+}
+
+fn next_quantize_grid(current: QuantizeGrid) -> QuantizeGrid {
+    let all = QuantizeGrid::all();
+    let current_index = all.iter().position(|grid| *grid == current).unwrap_or(0);
+    all[(current_index + 1) % all.len()]
 }
 
 fn draw_clip_view(ui: &mut egui::Ui, app: &mut AppState) {
@@ -766,54 +1084,35 @@ fn draw_clip_view(ui: &mut egui::Ui, app: &mut AppState) {
     let selected_note = app.selected_clip_note();
     let (min_pitch, max_pitch) = piano_roll_pitch_range(&notes, selected_note.as_ref(), &scale);
 
-    ui.horizontal_wrapped(|ui| {
-        ui.label(format!("{} notes", notes.len()));
-        if ui.button("Add Note").clicked() {
-            app.add_clip_note_at(beat, scale.root_midi);
+    if let Some(action) = draw_operad_clip_actions(ui, notes.len(), selected_note.as_ref()) {
+        match action.as_str() {
+            "clip.add_note" => app.add_clip_note_at(beat, scale.root_midi),
+            "clip.delete_note" => app.delete_selected_clip_note(),
+            "clip.duplicate_note" => app.duplicate_selected_clip_note(),
+            "clip.nudge_left" => app.nudge_selected_clip_note(-1.0),
+            "clip.nudge_right" => app.nudge_selected_clip_note(1.0),
+            "clip.pitch_down" => app.transpose_selected_clip_note(-1),
+            "clip.pitch_up" => app.transpose_selected_clip_note(1),
+            "clip.shorter" => app.resize_selected_clip_note(-1.0),
+            "clip.longer" => app.resize_selected_clip_note(1.0),
+            _ => {}
         }
-        ui.separator();
-        if let Some(note) = &selected_note {
-            ui.label(format!(
-                "Note {} start {:.2} len {:.2} vel {}",
-                note.musical_note, note.start_beats, note.duration_beats, note.velocity
-            ));
-            if ui.button("Delete").clicked() {
-                app.delete_selected_clip_note();
-            }
-            if ui.button("Duplicate").clicked() {
-                app.duplicate_selected_clip_note();
-            }
-            if ui.button("<").clicked() {
-                app.nudge_selected_clip_note(-1.0);
-            }
-            if ui.button(">").clicked() {
-                app.nudge_selected_clip_note(1.0);
-            }
-            if ui.button("Pitch -").clicked() {
-                app.transpose_selected_clip_note(-1);
-            }
-            if ui.button("Pitch +").clicked() {
-                app.transpose_selected_clip_note(1);
-            }
-            if ui.button("Shorter").clicked() {
-                app.resize_selected_clip_note(-1.0);
-            }
-            if ui.button("Longer").clicked() {
-                app.resize_selected_clip_note(1.0);
-            }
+    }
+    if let Some(note) = &selected_note {
+        ui.horizontal_wrapped(|ui| {
             let mut velocity = i32::from(note.velocity);
             if ui
                 .add(
                     egui::DragValue::new(&mut velocity)
-                        .clamp_range(1..=127)
+                        .range(1..=127)
                         .prefix("Vel "),
                 )
                 .changed()
             {
                 app.set_selected_clip_note_velocity(velocity.clamp(1, 127) as u8);
             }
-        }
-    });
+        });
+    }
     let pitch_count = (max_pitch - min_pitch + 1).max(1) as f32;
     let desired_height = (pitch_count * 16.0).clamp(300.0, 520.0);
     let desired_size = egui::vec2(ui.available_width(), desired_height);
@@ -838,20 +1137,22 @@ fn draw_clip_view(ui: &mut egui::Ui, app: &mut AppState) {
         row_height,
     };
 
-    painter.rect_filled(rect, 4.0, egui::Color32::from_gray(18));
-    painter.rect_filled(time_rect, 0.0, egui::Color32::from_gray(14));
-    painter.rect_filled(keyboard_rect, 0.0, egui::Color32::from_gray(24));
-    painter.rect_stroke(
+    draw_piano_roll_scene(
+        ui,
         rect,
-        4.0,
-        egui::Stroke::new(1.0, egui::Color32::from_gray(45)),
+        layout,
+        &scale,
+        &notes,
+        selected_id,
+        beat,
+        loop_beats,
+        recording,
+        grid_step,
     );
-
-    draw_piano_roll_pitch_lanes(&painter, layout, &scale);
-    draw_piano_roll_beat_grid(&painter, layout, grid_step);
+    draw_piano_roll_pitch_lane_labels(&painter, layout, &scale);
+    draw_piano_roll_beat_labels(&painter, layout, grid_step);
 
     if notes.is_empty() {
-        draw_clip_playhead(&painter, layout.time_rect, beat, loop_beats, recording);
         painter.text(
             layout.time_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -864,10 +1165,145 @@ fn draw_clip_view(ui: &mut egui::Ui, app: &mut AppState) {
     }
 
     for note in &notes {
-        draw_clip_note(&painter, layout, note, selected_id == Some(note.id));
+        draw_clip_note_label(&painter, layout, note, selected_id == Some(note.id));
     }
-    draw_clip_playhead(&painter, layout.time_rect, beat, loop_beats, recording);
     handle_piano_roll_click(&response, layout, &notes, app);
+}
+
+fn draw_operad_clip_actions(
+    ui: &mut egui::Ui,
+    note_count: usize,
+    selected_note: Option<&ClipNote>,
+) -> Option<String> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "clip.actions.row");
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "clip.actions.count",
+        format!("{note_count} notes"),
+        74.0,
+    );
+    operad_ui::spacer(&mut document, row, "clip.actions.space.1", 6.0);
+    operad_ui::button(
+        &mut document,
+        row,
+        "clip.add_note",
+        "Add Note",
+        76.0,
+        false,
+        true,
+    );
+    operad_ui::spacer(&mut document, row, "clip.actions.space.2", 8.0);
+    operad_ui::divider(&mut document, row, "clip.actions.divider");
+    operad_ui::spacer(&mut document, row, "clip.actions.space.3", 8.0);
+
+    if let Some(note) = selected_note {
+        operad_ui::mono_label(
+            &mut document,
+            row,
+            "clip.actions.selected",
+            format!(
+                "Note {} start {:.2} len {:.2}",
+                note.musical_note, note.start_beats, note.duration_beats
+            ),
+            236.0,
+        );
+        operad_ui::spacer(&mut document, row, "clip.actions.space.4", 8.0);
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.delete_note",
+            "Delete",
+            62.0,
+            false,
+            true,
+        );
+        operad_ui::spacer(&mut document, row, "clip.actions.space.5", 5.0);
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.duplicate_note",
+            "Duplicate",
+            82.0,
+            false,
+            true,
+        );
+        operad_ui::spacer(&mut document, row, "clip.actions.space.6", 5.0);
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.nudge_left",
+            "<",
+            30.0,
+            false,
+            true,
+        );
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.nudge_right",
+            ">",
+            30.0,
+            false,
+            true,
+        );
+        operad_ui::spacer(&mut document, row, "clip.actions.space.7", 5.0);
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.pitch_down",
+            "Pitch -",
+            66.0,
+            false,
+            true,
+        );
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.pitch_up",
+            "Pitch +",
+            66.0,
+            false,
+            true,
+        );
+        operad_ui::spacer(&mut document, row, "clip.actions.space.8", 5.0);
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.shorter",
+            "Shorter",
+            68.0,
+            false,
+            true,
+        );
+        operad_ui::button(
+            &mut document,
+            row,
+            "clip.longer",
+            "Longer",
+            64.0,
+            false,
+            true,
+        );
+    } else {
+        operad_ui::label(
+            &mut document,
+            row,
+            "clip.actions.empty",
+            "No note selected",
+            160.0,
+            false,
+        );
+    }
+
+    if operad_bridge::compute_and_paint_document(ui, rect, &mut document) {
+        operad_bridge::clicked_node_name(&response, rect, &document)
+    } else {
+        None
+    }
 }
 
 fn handle_piano_roll_click(
@@ -896,25 +1332,13 @@ fn handle_piano_roll_click(
     }
 }
 
-fn draw_clip_note(
+fn draw_clip_note_label(
     painter: &egui::Painter,
     layout: PianoRollLayout,
     note: &ClipNote,
     selected: bool,
 ) {
-    let fill = if selected {
-        egui::Color32::from_rgb(255, 190, 72)
-    } else {
-        egui::Color32::from_rgb(90, 172, 197)
-    };
-    let stroke = if selected {
-        egui::Stroke::new(2.0, egui::Color32::WHITE)
-    } else {
-        egui::Stroke::new(1.0, egui::Color32::BLACK)
-    };
     for note_rect in clip_note_rects(layout, note) {
-        painter.rect_filled(note_rect, 3.0, fill);
-        painter.rect_stroke(note_rect, 3.0, stroke);
         painter.text(
             note_rect.left_center() + egui::vec2(5.0, 0.0),
             egui::Align2::LEFT_CENTER,
@@ -956,8 +1380,66 @@ fn clip_note_rects(layout: PianoRollLayout, note: &ClipNote) -> Vec<egui::Rect> 
     rects
 }
 
-fn draw_piano_roll_pitch_lanes(
-    painter: &egui::Painter,
+fn draw_piano_roll_scene(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    layout: PianoRollLayout,
+    scale: &ScaleState,
+    notes: &[ClipNote],
+    selected_id: Option<u64>,
+    beat: f32,
+    loop_beats: f32,
+    recording: bool,
+    grid_step: f32,
+) {
+    let mut primitives = Vec::new();
+    push_rect_scene(
+        &mut primitives,
+        rect.min,
+        rect,
+        egui::Color32::from_gray(18),
+        Some(egui::Stroke::new(1.0, egui::Color32::from_gray(45))),
+    );
+    push_rect_scene(
+        &mut primitives,
+        rect.min,
+        layout.time_rect,
+        egui::Color32::from_gray(14),
+        None,
+    );
+    push_rect_scene(
+        &mut primitives,
+        rect.min,
+        layout.keyboard_rect,
+        egui::Color32::from_gray(24),
+        None,
+    );
+    push_piano_roll_pitch_lane_scene(&mut primitives, rect.min, layout, scale);
+    push_piano_roll_beat_grid_scene(&mut primitives, rect.min, layout, grid_step);
+    for note in notes {
+        push_clip_note_scene(
+            &mut primitives,
+            rect.min,
+            layout,
+            note,
+            selected_id == Some(note.id),
+        );
+    }
+    push_clip_playhead_scene(
+        &mut primitives,
+        rect.min,
+        layout.time_rect,
+        beat,
+        loop_beats,
+        recording,
+    );
+
+    operad_bridge::paint_scene(ui, rect, "piano_roll.scene", primitives);
+}
+
+fn push_piano_roll_pitch_lane_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
     layout: PianoRollLayout,
     scale: &ScaleState,
 ) {
@@ -987,33 +1469,37 @@ fn draw_piano_roll_pitch_lanes(
         } else {
             egui::Color32::from_gray(68)
         };
-        painter.rect_filled(row_rect, 0.0, lane);
-        painter.rect_filled(keyboard_row.shrink2(egui::vec2(0.0, 1.0)), 0.0, key_fill);
-        painter.line_segment(
-            [
-                egui::pos2(layout.time_rect.left(), y),
-                egui::pos2(layout.time_rect.right(), y),
-            ],
+        push_rect_scene(primitives, origin, row_rect, lane, None);
+        push_rect_scene(
+            primitives,
+            origin,
+            keyboard_row.shrink2(egui::vec2(0.0, 1.0)),
+            key_fill,
+            None,
+        );
+        push_line_scene(
+            primitives,
+            origin,
+            egui::pos2(layout.time_rect.left(), y),
+            egui::pos2(layout.time_rect.right(), y),
             egui::Stroke::new(1.0, egui::Color32::from_gray(35)),
         );
-        painter.text(
-            keyboard_row.center(),
-            egui::Align2::CENTER_CENTER,
-            format!("{} D{}", pitch, degree + 1),
-            egui::FontId::monospace(10.0),
-            egui::Color32::from_gray(225),
-        );
     }
-    painter.line_segment(
-        [
-            layout.keyboard_rect.right_top(),
-            layout.keyboard_rect.right_bottom(),
-        ],
+    push_line_scene(
+        primitives,
+        origin,
+        layout.keyboard_rect.right_top(),
+        layout.keyboard_rect.right_bottom(),
         egui::Stroke::new(1.0, egui::Color32::from_gray(55)),
     );
 }
 
-fn draw_piano_roll_beat_grid(painter: &egui::Painter, layout: PianoRollLayout, grid_step: f32) {
+fn push_piano_roll_beat_grid_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
+    layout: PianoRollLayout,
+    grid_step: f32,
+) {
     let step = grid_step.clamp(0.125, 4.0);
     let mut beat = 0.0_f32;
     while beat <= layout.loop_beats + 0.001 {
@@ -1028,13 +1514,120 @@ fn draw_piano_roll_beat_grid(painter: &egui::Painter, layout: PianoRollLayout, g
         } else {
             egui::Stroke::new(1.0, egui::Color32::from_gray(31))
         };
-        painter.line_segment(
-            [
-                egui::pos2(x, layout.time_rect.top()),
-                egui::pos2(x, layout.time_rect.bottom()),
-            ],
+        push_line_scene(
+            primitives,
+            origin,
+            egui::pos2(x, layout.time_rect.top()),
+            egui::pos2(x, layout.time_rect.bottom()),
             stroke,
         );
+        beat += step;
+    }
+}
+
+fn push_clip_note_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
+    layout: PianoRollLayout,
+    note: &ClipNote,
+    selected: bool,
+) {
+    let fill = if selected {
+        egui::Color32::from_rgb(255, 190, 72)
+    } else {
+        egui::Color32::from_rgb(90, 172, 197)
+    };
+    let stroke = if selected {
+        egui::Stroke::new(2.0, egui::Color32::WHITE)
+    } else {
+        egui::Stroke::new(1.0, egui::Color32::BLACK)
+    };
+    for note_rect in clip_note_rects(layout, note) {
+        push_rect_scene(primitives, origin, note_rect, fill, Some(stroke));
+    }
+}
+
+fn push_clip_playhead_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
+    rect: egui::Rect,
+    beat: f32,
+    loop_beats: f32,
+    recording: bool,
+) {
+    let x = rect.left() + beat / loop_beats.max(1.0) * rect.width();
+    let color = if recording {
+        egui::Color32::from_rgb(255, 76, 76)
+    } else {
+        egui::Color32::WHITE
+    };
+    push_line_scene(
+        primitives,
+        origin,
+        egui::pos2(x, rect.top()),
+        egui::pos2(x, rect.bottom()),
+        egui::Stroke::new(2.0, color),
+    );
+    primitives.push(ScenePrimitive::Polygon {
+        points: vec![
+            operad_bridge::local_point(origin, egui::pos2(x - 5.0, rect.top())),
+            operad_bridge::local_point(origin, egui::pos2(x + 5.0, rect.top())),
+            operad_bridge::local_point(origin, egui::pos2(x, rect.top() + 8.0)),
+        ],
+        fill: operad_bridge::color_from_egui(color),
+        stroke: None,
+    });
+}
+
+fn push_rect_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
+    rect: egui::Rect,
+    fill: egui::Color32,
+    stroke: Option<egui::Stroke>,
+) {
+    primitives.push(operad_bridge::rect_primitive(origin, rect, fill, stroke));
+}
+
+fn push_line_scene(
+    primitives: &mut Vec<ScenePrimitive>,
+    origin: egui::Pos2,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    stroke: egui::Stroke,
+) {
+    primitives.push(operad_bridge::line_primitive(origin, from, to, stroke));
+}
+
+fn draw_piano_roll_pitch_lane_labels(
+    painter: &egui::Painter,
+    layout: PianoRollLayout,
+    scale: &ScaleState,
+) {
+    for pitch in layout.min_pitch..=layout.max_pitch {
+        let y = layout.y_for_pitch(pitch);
+        let keyboard_row = egui::Rect::from_min_max(
+            egui::pos2(layout.keyboard_rect.left(), y),
+            egui::pos2(layout.keyboard_rect.right(), y + layout.row_height),
+        );
+        let degree = scale.note_info(pitch).map(|info| info.degree).unwrap_or(0);
+        painter.text(
+            keyboard_row.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{} D{}", pitch, degree + 1),
+            egui::FontId::monospace(10.0),
+            egui::Color32::from_gray(225),
+        );
+    }
+}
+
+fn draw_piano_roll_beat_labels(painter: &egui::Painter, layout: PianoRollLayout, grid_step: f32) {
+    let step = grid_step.clamp(0.125, 4.0);
+    let mut beat = 0.0_f32;
+    while beat <= layout.loop_beats + 0.001 {
+        let x =
+            layout.time_rect.left() + beat / layout.loop_beats.max(1.0) * layout.time_rect.width();
+        let whole = (beat.round() - beat).abs() < 0.001;
         if whole && beat < layout.loop_beats {
             painter.text(
                 egui::pos2(x + 4.0, layout.time_rect.top() + 4.0),
@@ -1075,51 +1668,110 @@ fn is_piano_black_key(pitch: i32) -> bool {
     matches!(pitch.rem_euclid(12), 1 | 3 | 6 | 8 | 10)
 }
 
-fn draw_clip_playhead(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    beat: f32,
-    loop_beats: f32,
-    recording: bool,
-) {
-    let x = rect.left() + beat / loop_beats.max(1.0) * rect.width();
-    let color = if recording {
-        egui::Color32::from_rgb(255, 76, 76)
-    } else {
-        egui::Color32::WHITE
-    };
-    painter.line_segment(
-        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-        egui::Stroke::new(2.0, color),
+fn draw_scale_header(ui: &mut egui::Ui, app: &AppState, scale: &ScaleState) {
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::hover());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "scale.header.row");
+    let scale_name = scale.scale.description.trim();
+    if !scale_name.is_empty() && scale_name != "12-TET" {
+        operad_ui::label(
+            &mut document,
+            row,
+            "scale.header.name",
+            scale_name,
+            220.0,
+            true,
+        );
+        operad_ui::spacer(&mut document, row, "scale.header.space.1", 8.0);
+        operad_ui::divider(&mut document, row, "scale.header.divider.1");
+        operad_ui::spacer(&mut document, row, "scale.header.space.2", 8.0);
+    }
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "scale.header.steps",
+        format!("{} steps", scale.scale.steps.len()),
+        72.0,
     );
-    painter.add(egui::Shape::convex_polygon(
-        vec![
-            egui::pos2(x - 5.0, rect.top()),
-            egui::pos2(x + 5.0, rect.top()),
-            egui::pos2(x, rect.top() + 8.0),
-        ],
-        color,
-        egui::Stroke::NONE,
-    ));
+    operad_ui::spacer(&mut document, row, "scale.header.space.3", 8.0);
+    operad_ui::divider(&mut document, row, "scale.header.divider.2");
+    operad_ui::spacer(&mut document, row, "scale.header.space.4", 8.0);
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "scale.header.root",
+        format!("Root MIDI {}", scale.root_midi),
+        104.0,
+    );
+    operad_ui::spacer(&mut document, row, "scale.header.space.5", 8.0);
+    operad_ui::divider(&mut document, row, "scale.header.divider.3");
+    operad_ui::spacer(&mut document, row, "scale.header.space.6", 8.0);
+    operad_ui::mono_label(
+        &mut document,
+        row,
+        "scale.header.base_freq",
+        format!("{:.2} Hz", scale.base_freq),
+        96.0,
+    );
+    if let Some(path) = &app.scala_path {
+        operad_ui::spacer(&mut document, row, "scale.header.space.7", 8.0);
+        operad_ui::divider(&mut document, row, "scale.header.divider.4");
+        operad_ui::spacer(&mut document, row, "scale.header.space.8", 8.0);
+        operad_ui::label(
+            &mut document,
+            row,
+            "scale.header.path",
+            path.display().to_string(),
+            (rect.width() - 560.0).max(120.0),
+            false,
+        );
+    }
+    operad_bridge::compute_and_paint_document(ui, rect, &mut document);
 }
 
-fn draw_scale_header(ui: &mut egui::Ui, app: &AppState, scale: &ScaleState) {
-    ui.horizontal_wrapped(|ui| {
-        let scale_name = scale.scale.description.trim();
-        if !scale_name.is_empty() && scale_name != "12-TET" {
-            ui.label(scale_name);
-            ui.separator();
-        }
-        ui.label(format!("{} steps", scale.scale.steps.len()));
-        ui.separator();
-        ui.label(format!("Root MIDI {}", scale.root_midi));
-        ui.separator();
-        ui.label(format!("{:.2} Hz", scale.base_freq));
-        if let Some(path) = &app.scala_path {
-            ui.separator();
-            ui.label(path.display().to_string());
-        }
-    });
+fn draw_lumatone_status_row(ui: &mut egui::Ui, app: &AppState, map: Option<&Arc<LumatoneMap>>) {
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
+    let mut document = operad_ui::document(rect.width(), rect.height());
+    let row = operad_ui::panel_row(&mut document, "lumatone.status.row");
+    if let Some(map) = map {
+        operad_ui::mono_label(
+            &mut document,
+            row,
+            "lumatone.status.keys",
+            format!("{} keys", map.len()),
+            78.0,
+        );
+    } else {
+        operad_ui::label(
+            &mut document,
+            row,
+            "lumatone.status.keys",
+            "No key map loaded",
+            130.0,
+            false,
+        );
+    }
+    if let Some(path) = &app.lumatone_path {
+        operad_ui::spacer(&mut document, row, "lumatone.status.space.1", 8.0);
+        operad_ui::divider(&mut document, row, "lumatone.status.divider.1");
+        operad_ui::spacer(&mut document, row, "lumatone.status.space.2", 8.0);
+        operad_ui::label(
+            &mut document,
+            row,
+            "lumatone.status.preset",
+            format!(
+                "Preset: {}",
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("Unknown")
+            ),
+            (rect.width() - 120.0).max(160.0),
+            false,
+        );
+    }
+    operad_bridge::compute_and_paint_document(ui, rect, &mut document);
 }
 
 fn draw_event(ui: &mut egui::Ui, label: &str, event: &MidiEvent) {
@@ -1197,12 +1849,12 @@ fn draw_lumatone_grid(
     let total_height = max_center_y + height + padding * 2.0;
     let (rect, _response) =
         ui.allocate_exact_size(egui::vec2(total_width, total_height), egui::Sense::hover());
-    let painter = ui.painter_at(rect);
+    let mut key_primitives = Vec::with_capacity(LUMATONE_BOARDS * LUMATONE_KEYS_PER_BOARD);
 
     for board in 0..LUMATONE_BOARDS {
         let board_origin = egui::pos2(
-            rect.min.x + padding + width / 2.0 + board as f32 * board_stride,
-            rect.min.y + padding + size,
+            padding + width / 2.0 + board as f32 * board_stride,
+            padding + size,
         );
         for (row, count) in LUMATONE_ROW_COUNTS.iter().copied().enumerate() {
             for col in 0..count {
@@ -1225,14 +1877,52 @@ fn draw_lumatone_grid(
                 } else {
                     egui::Stroke::new(1.0, egui::Color32::from_gray(25))
                 };
-                let points: Vec<egui::Pos2> = (0..6)
+                let points = (0..6)
                     .map(|idx| {
                         let angle = (30.0 + idx as f32 * 60.0).to_radians();
-                        egui::pos2(center.x + size * angle.cos(), center.y + size * angle.sin())
+                        UiPoint::new(center.x + size * angle.cos(), center.y + size * angle.sin())
                     })
                     .collect();
-                painter.add(egui::Shape::convex_polygon(points, fill, stroke));
+                key_primitives.push(ScenePrimitive::Polygon {
+                    points,
+                    fill: operad_bridge::color_from_egui(fill),
+                    stroke: Some(operad_bridge::stroke_from_egui(stroke)),
+                });
+                if captured_order.is_some() {
+                    key_primitives.push(operad_bridge::circle_primitive(
+                        egui::Pos2::ZERO,
+                        center,
+                        (size * 0.48).clamp(4.0, 8.0),
+                        egui::Color32::from_rgb(255, 208, 64),
+                        Some(egui::Stroke::new(1.0, egui::Color32::BLACK)),
+                    ));
+                }
+            }
+        }
+    }
 
+    operad_bridge::paint_scene(ui, rect, "lumatone.keys", key_primitives);
+
+    let painter = ui.painter_at(rect);
+
+    for board in 0..LUMATONE_BOARDS {
+        let board_origin = egui::pos2(
+            rect.min.x + padding + width / 2.0 + board as f32 * board_stride,
+            rect.min.y + padding + size,
+        );
+        for (row, count) in LUMATONE_ROW_COUNTS.iter().copied().enumerate() {
+            for col in 0..count {
+                let local = LUMATONE_ROW_STARTS[row] + col;
+                let key_index = (board * LUMATONE_KEYS_PER_BOARD + local) as u32;
+                let x = board_origin.x + row as f32 * row_skew + col as f32 * col_spacing;
+                let y = board_origin.y + row as f32 * row_spacing;
+                let center = egui::pos2(x, y);
+                let key = map.as_deref().and_then(|map| map.key(key_index));
+                let captured_order = captured_keys.get(&key_index).copied();
+                let fill = key
+                    .and_then(|key| key.color)
+                    .map(|[red, green, blue]| egui::Color32::from_rgb(red, green, blue))
+                    .unwrap_or_else(|| egui::Color32::from_gray(62));
                 if let Some(order) = captured_order {
                     draw_capture_marker(&painter, center, order, size);
                 } else if show_labels {
@@ -1244,9 +1934,6 @@ fn draw_lumatone_grid(
 }
 
 fn draw_capture_marker(painter: &egui::Painter, center: egui::Pos2, order: usize, key_size: f32) {
-    let radius = (key_size * 0.48).clamp(4.0, 8.0);
-    painter.circle_filled(center, radius, egui::Color32::from_rgb(255, 208, 64));
-    painter.circle_stroke(center, radius, egui::Stroke::new(1.0, egui::Color32::BLACK));
     painter.text(
         center,
         egui::Align2::CENTER_CENTER,
@@ -1358,7 +2045,7 @@ fn handle_screenshot_events(ctx: &egui::Context, app: &mut AppState) {
 fn request_screenshot(ctx: &egui::Context, app: &mut AppState, exit_after_screenshot: bool) {
     app.screenshot_requested = true;
     app.exit_after_screenshot = exit_after_screenshot;
-    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
     app.last_status = "Screenshot requested".to_string();
 }
 

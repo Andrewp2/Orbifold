@@ -2,13 +2,15 @@
 name = "orbifold"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 cpal = "0.15"
-eframe = "0.27"
-egui = "0.27"
+eframe = "0.33"
+egui = "0.33"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"
 midir = "0.9"
+operad = { git = "ssh://git@github.com/Andrewp2/Operad.git", rev = "07061e2", features = ["widgets"] }
 parking_lot = "0.12"
 rfd = "0.14"

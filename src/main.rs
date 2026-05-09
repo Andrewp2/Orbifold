@@ -2,6 +2,8 @@ mod app;
 mod audio;
 mod gui;
 mod midi;
+mod operad_bridge;
+mod operad_ui;
 mod project;
 mod scala;
 mod scale;
@@ -76,7 +78,7 @@ fn main() -> eframe::Result<()> {
         "Orbifold",
         options,
         Box::new(move |_cc| {
-            Box::new(AppState::new(
+            Ok(Box::new(AppState::new(
                 scale_state,
                 synth,
                 midi_last,
@@ -88,7 +90,7 @@ fn main() -> eframe::Result<()> {
                 settings,
                 startup_status,
                 screenshot_on_start,
-            ))
+            )))
         }),
     )
 }
