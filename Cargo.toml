@@ -1,0 +1,14 @@
+[package]
+name = "orbifold"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = "0.15"
+eframe = "0.27"
+egui = "0.27"
+image = { version = "0.24", default-features = false, features = ["png"] }
+log = "0.4"
+midir = "0.9"
+parking_lot = "0.12"
+rfd = "0.14"
