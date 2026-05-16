@@ -9,17 +9,41 @@ pub(crate) struct AudioOutputDevice {
     pub(crate) is_default: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AudioStreamInfo {
+    pub(crate) sample_rate_hz: u32,
+    pub(crate) channels: u16,
+    pub(crate) sample_format: String,
+    pub(crate) buffer_frames: Option<u32>,
+}
+
 pub(crate) fn list_audio_outputs() -> Vec<AudioOutputDevice> {
     let host = cpal::default_host();
     let default_name = host
         .default_output_device()
-        .and_then(|device| device.name().ok());
-    let Ok(devices) = host.output_devices() else {
-        return Vec::new();
+        .and_then(|device| match device.name() {
+            Ok(name) => Some(name),
+            Err(err) => {
+                log::error!("Failed to read default audio output name: {err}");
+                None
+            }
+        });
+    let devices = match host.output_devices() {
+        Ok(devices) => devices,
+        Err(err) => {
+            log::error!("Failed to enumerate audio outputs: {err}");
+            return Vec::new();
+        }
     };
 
     devices
-        .filter_map(|device| device.name().ok())
+        .filter_map(|device| match device.name() {
+            Ok(name) => Some(name),
+            Err(err) => {
+                log::error!("Failed to read audio output name while listing devices: {err}");
+                None
+            }
+        })
         .map(|name| {
             let is_default = default_name.as_deref() == Some(name.as_str());
             AudioOutputDevice { name, is_default }
@@ -30,16 +54,27 @@ pub(crate) fn list_audio_outputs() -> Vec<AudioOutputDevice> {
 pub(crate) fn build_audio_stream(
     synth: &SynthHandle,
     requested_output_name: Option<&str>,
-) -> Result<(cpal::Stream, String, Sender<AudioCommand>), String> {
+) -> Result<(cpal::Stream, String, Sender<AudioCommand>, AudioStreamInfo), String> {
     let host = cpal::default_host();
     let (device, device_name) = select_output_device(&host, requested_output_name)?;
     let supported_config = device.default_output_config().map_err(|e| e.to_string())?;
-    let sample_rate = supported_config.sample_rate().0 as f32;
+    let sample_rate_hz = supported_config.sample_rate().0;
+    let sample_rate = sample_rate_hz as f32;
     let sample_format = supported_config.sample_format();
-    let stream_config = supported_config.into();
+    let stream_config = supported_config.config();
+    let buffer_frames = match stream_config.buffer_size {
+        cpal::BufferSize::Default => None,
+        cpal::BufferSize::Fixed(frames) => Some(frames),
+    };
+    let info = AudioStreamInfo {
+        sample_rate_hz,
+        channels: stream_config.channels,
+        sample_format: format!("{sample_format:?}"),
+        buffer_frames,
+    };
     let (engine, receiver, sender) = synth.make_engine(sample_rate);
 
-    let err_fn = |err| eprintln!("Audio stream error: {err}");
+    let err_fn = |err| log::error!("Audio stream error: {err}");
     let stream = match sample_format {
         cpal::SampleFormat::F32 => {
             build_stream::<f32>(&device, &stream_config, engine, receiver, err_fn)
@@ -53,7 +88,7 @@ pub(crate) fn build_audio_stream(
         _ => Err("Unsupported sample format".to_string()),
     }?;
 
-    Ok((stream, device_name, sender))
+    Ok((stream, device_name, sender, info))
 }
 
 fn select_output_device(
@@ -72,7 +107,10 @@ fn select_output_device(
     }
 
     let device = host.default_output_device().ok_or("No output device")?;
-    let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+    let name = device.name().unwrap_or_else(|err| {
+        log::error!("Failed to read default audio output name: {err}; using Unknown");
+        "Unknown".to_string()
+    });
     Ok((device, name))
 }
 

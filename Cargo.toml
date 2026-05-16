@@ -6,11 +6,16 @@ license = "MIT"
 
 [dependencies]
 cpal = "0.15"
-eframe = "0.33"
-egui = "0.33"
+env_logger = "0.11"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"
 midir = "0.9"
-operad = { git = "ssh://git@github.com/Andrewp2/Operad.git", rev = "07061e2", features = ["widgets"] }
+operad = { git = "https://github.com/Andrewp2/Operad.git", rev = "bb7ac5f4d1fb2cf05f07a9b762622227ef9d99cc", default-features = false, features = ["widgets", "native-window"] }
 parking_lot = "0.12"
+pollster = "0.3"
 rfd = "0.14"
+winit = "0.30"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+alsa-sys = "0.3"
+libloading = "0.8"

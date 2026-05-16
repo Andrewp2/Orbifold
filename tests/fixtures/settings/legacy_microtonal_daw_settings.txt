@@ -1,0 +1,11 @@
+audio_output_name=Old Output
+midi_input_name=Old Keyboard
+scala_path=scales/31-edo.scl
+root_midi=60
+base_freq=261.63
+master_gain=0.5
+attack_ms=10
+release_ms=120
+waveform=Saw
+midi_debug=true
+scale_library=scales/31-edo.scl

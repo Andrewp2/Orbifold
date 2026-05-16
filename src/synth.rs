@@ -3,9 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     mpsc::{self, Receiver, Sender},
 };
+
+const OUTPUT_LIMIT_THRESHOLD: f32 = 0.48;
+const OUTPUT_LIMIT_HOLD_MS: f32 = 180.0;
+const OUTPUT_METER_DECAY: f32 = 0.9995;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Waveform {
@@ -81,6 +85,7 @@ pub(crate) enum AudioCommand {
     NoteOff { note: u32 },
     AllNotesOff,
     SetSettings(SynthSettings),
+    SetMuted(bool),
 }
 
 #[derive(Clone)]
@@ -89,6 +94,9 @@ pub(crate) struct SynthHandle {
     active_notes: Arc<Mutex<HashSet<u32>>>,
     active_voice_count: Arc<AtomicUsize>,
     settings: Arc<Mutex<SynthSettings>>,
+    muted: Arc<AtomicBool>,
+    output_level: Arc<AtomicU32>,
+    output_limited: Arc<AtomicBool>,
     voice_count: usize,
 }
 
@@ -99,6 +107,9 @@ impl SynthHandle {
             active_notes: Arc::new(Mutex::new(HashSet::new())),
             active_voice_count: Arc::new(AtomicUsize::new(0)),
             settings: Arc::new(Mutex::new(SynthSettings::default())),
+            muted: Arc::new(AtomicBool::new(false)),
+            output_level: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            output_limited: Arc::new(AtomicBool::new(false)),
             voice_count,
         }
     }
@@ -109,11 +120,15 @@ impl SynthHandle {
     ) -> (SynthEngine, Receiver<AudioCommand>, Sender<AudioCommand>) {
         let (sender, receiver) = mpsc::channel();
         let settings = *self.settings.lock();
+        let muted = self.muted.load(Ordering::Relaxed);
         let engine = SynthEngine::new(
             sample_rate,
             self.voice_count,
             settings,
+            muted,
             self.active_voice_count.clone(),
+            self.output_level.clone(),
+            self.output_limited.clone(),
         );
         (engine, receiver, sender)
     }
@@ -122,6 +137,7 @@ impl SynthHandle {
         *self.sender.lock() = Some(sender);
         self.active_notes.lock().clear();
         self.active_voice_count.store(0, Ordering::Relaxed);
+        self.reset_output_meter();
     }
 
     pub(crate) fn note_on(&self, note: u32, freq: f32, velocity: f32) -> Result<(), String> {
@@ -156,6 +172,15 @@ impl SynthHandle {
         *self.settings.lock()
     }
 
+    pub(crate) fn set_muted(&self, muted: bool) -> Result<(), String> {
+        self.muted.store(muted, Ordering::Relaxed);
+        self.send(AudioCommand::SetMuted(muted))
+    }
+
+    pub(crate) fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn active_notes(&self) -> Vec<u32> {
         self.active_notes.lock().iter().copied().collect()
     }
@@ -164,9 +189,24 @@ impl SynthHandle {
         self.active_voice_count.load(Ordering::Relaxed)
     }
 
+    pub(crate) fn output_level(&self) -> f32 {
+        f32::from_bits(self.output_level.load(Ordering::Relaxed)).clamp(0.0, 1.0)
+    }
+
+    pub(crate) fn output_limited(&self) -> bool {
+        self.output_limited.load(Ordering::Relaxed)
+    }
+
+    fn reset_output_meter(&self) {
+        self.output_level
+            .store(0.0_f32.to_bits(), Ordering::Relaxed);
+        self.output_limited.store(false, Ordering::Relaxed);
+    }
+
     fn send(&self, command: AudioCommand) -> Result<(), String> {
         let sender = self.sender.lock().clone();
         let Some(sender) = sender else {
+            log::trace!("Audio command ignored because no audio sender is installed: {command:?}");
             return Ok(());
         };
         sender
@@ -213,8 +253,13 @@ pub(crate) struct SynthEngine {
     note_map: HashMap<u32, usize>,
     sample_rate: f32,
     settings: SynthSettings,
+    muted: bool,
     counter: u64,
     active_voice_count: Arc<AtomicUsize>,
+    output_level: Arc<AtomicU32>,
+    output_limited: Arc<AtomicBool>,
+    meter_level: f32,
+    limit_hold_samples: u32,
     filter_state: f32,
     delay_buffer: Vec<f32>,
     delay_index: usize,
@@ -225,15 +270,23 @@ impl SynthEngine {
         sample_rate: f32,
         voice_count: usize,
         settings: SynthSettings,
+        muted: bool,
         active_voice_count: Arc<AtomicUsize>,
+        output_level: Arc<AtomicU32>,
+        output_limited: Arc<AtomicBool>,
     ) -> Self {
         Self {
             voices: vec![Voice::default(); voice_count],
             note_map: HashMap::new(),
             sample_rate,
             settings,
+            muted,
             counter: 1,
             active_voice_count,
+            output_level,
+            output_limited,
+            meter_level: 0.0,
+            limit_hold_samples: 0,
             filter_state: 0.0,
             delay_buffer: vec![0.0; sample_rate.max(1.0).round() as usize],
             delay_index: 0,
@@ -250,11 +303,13 @@ impl SynthEngine {
             AudioCommand::NoteOff { note } => self.note_off(note),
             AudioCommand::AllNotesOff => self.all_notes_off(),
             AudioCommand::SetSettings(settings) => self.settings = settings,
+            AudioCommand::SetMuted(muted) => self.muted = muted,
         }
     }
 
     pub(crate) fn next_sample(&mut self) -> f32 {
         let mut out = 0.0_f32;
+        let mut active_voices = 0_usize;
         for voice in &mut self.voices {
             if !voice.active {
                 continue;
@@ -275,14 +330,25 @@ impl SynthEngine {
                 voice.amp = voice.target_amp;
             }
 
+            active_voices += 1;
             out += waveform_sample(self.settings.waveform, voice.phase) * voice.amp;
             voice.phase = (voice.phase + voice.freq / self.sample_rate).fract();
         }
 
+        if active_voices > 1 {
+            out /= (active_voices as f32).sqrt();
+        }
         let filtered = self.filter_sample(out);
-        let driven = (filtered * self.settings.drive.max(0.0)).tanh();
+        let driven = drive_sample(filtered, self.settings.drive);
         let delayed = self.delay_sample(driven);
-        soft_clip(delayed * self.settings.master_gain)
+        let gain = if self.muted {
+            0.0
+        } else {
+            self.settings.master_gain
+        };
+        let sample = limit_output_sample(delayed * gain);
+        self.update_output_meter(sample);
+        sample
     }
 
     pub(crate) fn update_meter(&self) {
@@ -341,6 +407,24 @@ impl SynthEngine {
             voice.amp = 0.0;
             voice.release_remaining = 0;
         }
+    }
+
+    fn update_output_meter(&mut self, sample: f32) {
+        let level = sample.abs().clamp(0.0, 1.0);
+        self.meter_level = (self.meter_level * OUTPUT_METER_DECAY).max(level);
+        if self.meter_level < 0.0001 {
+            self.meter_level = 0.0;
+        }
+        self.output_level
+            .store(self.meter_level.to_bits(), Ordering::Relaxed);
+
+        if level >= OUTPUT_LIMIT_THRESHOLD {
+            self.limit_hold_samples = samples_for_ms(self.sample_rate, OUTPUT_LIMIT_HOLD_MS).max(1);
+        } else if self.limit_hold_samples > 0 {
+            self.limit_hold_samples -= 1;
+        }
+        self.output_limited
+            .store(self.limit_hold_samples > 0, Ordering::Relaxed);
     }
 
     fn allocate_voice(&mut self) -> usize {
@@ -413,6 +497,116 @@ fn waveform_sample(waveform: Waveform, phase: f32) -> f32 {
     }
 }
 
-fn soft_clip(sample: f32) -> f32 {
-    sample / (1.0 + sample.abs())
+fn drive_sample(sample: f32, drive: f32) -> f32 {
+    let drive = drive.max(0.0);
+    if drive <= 1.0 {
+        sample * drive
+    } else {
+        (sample * drive).tanh() / drive.tanh()
+    }
+}
+
+fn limit_output_sample(sample: f32) -> f32 {
+    sample.clamp(-1.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synth_engine_outputs_silence_while_muted_without_stopping_voice() {
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            attack_ms: 0.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        let mut engine = SynthEngine::new(
+            44_100.0,
+            4,
+            settings,
+            false,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 69,
+            freq: 440.0,
+            velocity: 1.0,
+        });
+        assert!((0..64).any(|_| engine.next_sample().abs() > 0.0001));
+
+        engine.handle_command(AudioCommand::SetMuted(true));
+        assert!((0..64).all(|_| engine.next_sample().abs() <= f32::EPSILON));
+
+        engine.handle_command(AudioCommand::SetMuted(false));
+        assert!((0..64).any(|_| engine.next_sample().abs() > 0.0001));
+    }
+
+    #[test]
+    fn synth_handle_reports_output_level_and_limiting_from_engine() {
+        let synth = SynthHandle::new(8);
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            attack_ms: 0.0,
+            waveform: Waveform::Square,
+            drive: 8.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        synth.set_settings(settings).unwrap();
+        let (mut engine, _receiver, _sender) = synth.make_engine(44_100.0);
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 69,
+            freq: 440.0,
+            velocity: 1.0,
+        });
+
+        let limited = (0..512).any(|_| {
+            engine.next_sample();
+            synth.output_limited()
+        });
+
+        assert!(synth.output_level() > 0.0);
+        assert!(limited);
+    }
+
+    #[test]
+    fn default_drive_is_clean_at_unity() {
+        for sample in [-2.0_f32, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0] {
+            assert!((drive_sample(sample, 1.0) - sample).abs() <= f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn default_polyphonic_sine_chord_stays_below_limiter_threshold_at_midi_velocity() {
+        let synth = SynthHandle::new(8);
+        let settings = SynthSettings {
+            attack_ms: 0.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        synth.set_settings(settings).unwrap();
+        let (mut engine, _receiver, _sender) = synth.make_engine(44_100.0);
+        for (note, freq) in [(72, 523.2511), (76, 659.2551), (79, 783.9908)] {
+            engine.handle_command(AudioCommand::NoteOn {
+                note,
+                freq,
+                velocity: 100.0 / 127.0,
+            });
+        }
+
+        let max_level = (0..4096)
+            .map(|_| engine.next_sample().abs())
+            .fold(0.0_f32, f32::max);
+
+        assert!(
+            max_level < OUTPUT_LIMIT_THRESHOLD,
+            "default triad should stay below limiter threshold, got {max_level}"
+        );
+        assert!(!synth.output_limited());
+    }
 }

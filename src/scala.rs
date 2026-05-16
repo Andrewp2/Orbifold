@@ -144,6 +144,24 @@ Just pentatonic
     }
 
     #[test]
+    fn parse_large_equal_temperament_scale() {
+        let count = 4096;
+        let mut data = format!("Large generated EDO\n{count}\n");
+        for step in 1..=count {
+            let cents = step as f32 * 1200.0 / count as f32;
+            data.push_str(&format!("{cents:.8}\n"));
+        }
+
+        let scale = parse_scala_contents(&data).expect("large generated scale should parse");
+
+        assert_eq!(scale.description, "Large generated EDO");
+        assert_eq!(scale.steps.len(), count);
+        assert_approx_eq(scale.steps[0], 1.0);
+        assert_approx_eq(scale.steps[1], 2.0_f32.powf(1.0 / count as f32));
+        assert!(scale.steps[count - 1] < 2.0);
+    }
+
+    #[test]
     fn parse_errors_when_step_count_is_not_met() {
         let err = parse_scala_contents(
             r#"
@@ -156,5 +174,22 @@ Too short
         .expect_err("scale should fail");
 
         assert_eq!(err, "Expected 3 scale steps, found 2");
+    }
+
+    #[test]
+    fn bundled_scales_parse() {
+        let Ok(entries) = std::fs::read_dir("scales") else {
+            return;
+        };
+        let mut parsed = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("scl") {
+                continue;
+            }
+            parse_scala(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+            parsed += 1;
+        }
+        assert!(parsed > 0, "expected bundled .scl files");
     }
 }

@@ -1,0 +1,22 @@
+orbifold_project=1
+scala_path=
+lumatone_path=
+root_midi=60
+base_freq=261.63
+waveform=Triangle
+master_gain=0.42
+attack_ms=12
+release_ms=180
+drive=1.5
+filter_cutoff_hz=14000
+delay_mix=0.2
+delay_feedback=0.4
+delay_time_ms=320
+bpm=96
+loop_beats=12
+overdub=true
+quantize_grid=1/8
+quantize_on_record=false
+metronome_enabled=true
+next_note_id=10
+note	9	2.5	0.75	-1	64	1	61	88	329.63	false

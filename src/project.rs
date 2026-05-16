@@ -139,6 +139,8 @@ pub(crate) struct MusicProject {
     pub(crate) clip: Clip,
     pub(crate) transport: Transport,
     pending_notes: HashMap<(i32, u8, u8), PendingNote>,
+    sustained_note_keys: HashSet<(i32, u8, u8)>,
+    sustain_down: bool,
     next_note_id: u64,
 }
 
@@ -148,6 +150,8 @@ impl Default for MusicProject {
             clip: Clip::default(),
             transport: Transport::default(),
             pending_notes: HashMap::new(),
+            sustained_note_keys: HashSet::new(),
+            sustain_down: false,
             next_note_id: 1,
         }
     }
@@ -158,8 +162,27 @@ impl MusicProject {
         self.transport.playing = true;
         self.transport.recording = false;
         self.transport.started_at = Some(now);
-        self.transport.last_position_beats = 0.0;
-        self.pending_notes.clear();
+        self.clear_pending_recording_state();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause(&mut self, now: Instant) {
+        self.finish_pending_notes(now);
+        self.transport.last_position_beats = self.current_position_beats(now);
+        self.transport.playing = false;
+        self.transport.recording = false;
+        self.transport.started_at = None;
+    }
+
+    pub(crate) fn seek(&mut self, position_beats: f32, now: Instant) {
+        if self.transport.recording {
+            self.finish_pending_notes(now);
+            self.transport.recording = false;
+        }
+        self.transport.last_position_beats = wrap_beat(position_beats, self.transport.loop_beats);
+        if self.transport.playing {
+            self.transport.started_at = Some(now);
+        }
     }
 
     pub(crate) fn stop(&mut self, now: Instant) {
@@ -179,7 +202,7 @@ impl MusicProject {
         self.transport.recording = true;
         self.transport.started_at = Some(now);
         self.transport.last_position_beats = 0.0;
-        self.pending_notes.clear();
+        self.clear_pending_recording_state();
     }
 
     pub(crate) fn stop_recording(&mut self, now: Instant) {
@@ -187,10 +210,14 @@ impl MusicProject {
         self.transport.recording = false;
     }
 
-    pub(crate) fn clear_clip(&mut self) {
+    pub(crate) fn clear_clip(&mut self) -> bool {
+        if self.clip.notes.is_empty() && self.pending_notes.is_empty() {
+            return false;
+        }
         self.clip.notes.clear();
-        self.pending_notes.clear();
+        self.clear_pending_recording_state();
         self.next_note_id = 1;
+        true
     }
 
     pub(crate) fn current_position_beats(&self, now: Instant) -> f32 {
@@ -198,12 +225,9 @@ impl MusicProject {
             return self.transport.last_position_beats;
         };
         let elapsed = now.saturating_duration_since(started_at);
-        let beat = elapsed.as_secs_f32() * self.transport.bpm.max(1.0) / 60.0;
+        let beat = self.transport.last_position_beats
+            + elapsed.as_secs_f32() * self.transport.bpm.max(1.0) / 60.0;
         wrap_beat(beat, self.transport.loop_beats)
-    }
-
-    pub(crate) fn set_last_position(&mut self, position: f32) {
-        self.transport.last_position_beats = wrap_beat(position, self.transport.loop_beats);
     }
 
     pub(crate) fn record_midi_event(&mut self, event: &MidiEvent) {
@@ -211,8 +235,18 @@ impl MusicProject {
             return;
         }
         let now = event.at;
-        if event.is_note_on() {
+        if event.is_sustain_on() {
+            self.sustain_down = true;
+        } else if event.is_sustain_off() {
+            self.sustain_down = false;
+            self.finish_sustained_notes(now);
+        } else if event.is_note_on() {
             if let Some(freq) = event.freq {
+                let key = (event.key_index, event.channel, event.midi_note);
+                if let Some(previous) = self.pending_notes.remove(&key) {
+                    self.sustained_note_keys.remove(&key);
+                    self.push_finished_note(previous, self.current_position_beats(now));
+                }
                 let pending = PendingNote {
                     start_beats: self.current_position_beats(now),
                     key_index: event.key_index,
@@ -223,15 +257,16 @@ impl MusicProject {
                     freq,
                     mapped_from_lumatone: event.mapped_from_lumatone,
                 };
-                self.pending_notes
-                    .insert((event.key_index, event.channel, event.midi_note), pending);
+                self.pending_notes.insert(key, pending);
             }
-        } else if event.is_note_off()
-            && let Some(pending) =
-                self.pending_notes
-                    .remove(&(event.key_index, event.channel, event.midi_note))
-        {
-            self.push_finished_note(pending, self.current_position_beats(now));
+        } else if event.is_note_off() {
+            let key = (event.key_index, event.channel, event.midi_note);
+            if self.sustain_down && self.pending_notes.contains_key(&key) {
+                self.sustained_note_keys.insert(key);
+            } else if let Some(pending) = self.pending_notes.remove(&key) {
+                self.sustained_note_keys.remove(&key);
+                self.push_finished_note(pending, self.current_position_beats(now));
+            }
         }
     }
 
@@ -244,15 +279,42 @@ impl MusicProject {
             .collect()
     }
 
-    pub(crate) fn quantize_clip(&mut self) {
+    pub(crate) fn quantize_clip(&mut self) -> bool {
         let Some(step) = self.transport.quantize_grid.step_beats() else {
-            return;
+            return false;
         };
+        let mut changed = false;
         for note in &mut self.clip.notes {
-            note.start_beats = quantize_beat(note.start_beats, step, self.transport.loop_beats);
-            note.duration_beats = quantize_duration(note.duration_beats, step);
+            let start_beats = quantize_beat(note.start_beats, step, self.transport.loop_beats);
+            let duration_beats = quantize_duration(note.duration_beats, step);
+            changed |= (note.start_beats - start_beats).abs() > f32::EPSILON
+                || (note.duration_beats - duration_beats).abs() > f32::EPSILON;
+            note.start_beats = start_beats;
+            note.duration_beats = duration_beats;
         }
-        self.sort_clip_notes();
+        if changed {
+            self.sort_clip_notes();
+        }
+        changed
+    }
+
+    pub(crate) fn quantize_note(&mut self, note_id: u64) -> bool {
+        let Some(step) = self.transport.quantize_grid.step_beats() else {
+            return false;
+        };
+        let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        let start_beats = quantize_beat(note.start_beats, step, self.transport.loop_beats);
+        let duration_beats = quantize_duration(note.duration_beats, step);
+        let changed = (note.start_beats - start_beats).abs() > f32::EPSILON
+            || (note.duration_beats - duration_beats).abs() > f32::EPSILON;
+        note.start_beats = start_beats;
+        note.duration_beats = duration_beats;
+        if changed {
+            self.sort_clip_notes();
+        }
+        changed
     }
 
     pub(crate) fn note_by_id(&self, note_id: u64) -> Option<ClipNote> {
@@ -323,10 +385,40 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
-        note.duration_beats = (note.duration_beats + delta_beats).clamp(
+        let duration = (note.duration_beats + delta_beats).clamp(
             MIN_NOTE_BEATS,
             self.transport.loop_beats.max(MIN_NOTE_BEATS),
         );
+        if (duration - note.duration_beats).abs() <= f32::EPSILON {
+            return false;
+        }
+        note.duration_beats = duration;
+        true
+    }
+
+    pub(crate) fn set_note_duration(&mut self, note_id: u64, duration_beats: f32) -> bool {
+        let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        note.duration_beats = duration_beats.clamp(
+            MIN_NOTE_BEATS,
+            self.transport.loop_beats.max(MIN_NOTE_BEATS),
+        );
+        true
+    }
+
+    pub(crate) fn set_note_start_preserving_end(&mut self, note_id: u64, start_beats: f32) -> bool {
+        let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        let loop_beats = self.transport.loop_beats.max(MIN_NOTE_BEATS);
+        let end_beats = note.start_beats + note.duration_beats;
+        let start_beats = wrap_beat(start_beats, loop_beats);
+        note.start_beats = start_beats;
+        note.duration_beats = (end_beats - start_beats)
+            .rem_euclid(loop_beats)
+            .clamp(MIN_NOTE_BEATS, loop_beats);
+        self.sort_clip_notes();
         true
     }
 
@@ -342,6 +434,26 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
+        note.musical_note = musical_note;
+        note.freq = freq;
+        note.raw_note = musical_note.clamp(0, 127) as u8;
+        note.key_index = -1;
+        note.mapped_from_lumatone = false;
+        self.sort_clip_notes();
+        true
+    }
+
+    pub(crate) fn set_note_start_and_pitch(
+        &mut self,
+        note_id: u64,
+        start_beats: f32,
+        musical_note: i32,
+        freq: f32,
+    ) -> bool {
+        let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
+            return false;
+        };
+        note.start_beats = wrap_beat(start_beats, self.transport.loop_beats);
         note.musical_note = musical_note;
         note.freq = freq;
         note.raw_note = musical_note.clamp(0, 127) as u8;
@@ -386,7 +498,7 @@ impl MusicProject {
         self.transport.started_at = None;
         self.transport.last_position_beats = 0.0;
         self.clip = snapshot.clip;
-        self.pending_notes.clear();
+        self.clear_pending_recording_state();
         self.next_note_id = snapshot.next_note_id.max(
             self.clip
                 .notes
@@ -404,6 +516,24 @@ impl MusicProject {
         for note in pending.into_values() {
             self.push_finished_note(note, end);
         }
+        self.sustained_note_keys.clear();
+        self.sustain_down = false;
+    }
+
+    fn finish_sustained_notes(&mut self, now: Instant) {
+        let end = self.current_position_beats(now);
+        let keys = std::mem::take(&mut self.sustained_note_keys);
+        for key in keys {
+            if let Some(note) = self.pending_notes.remove(&key) {
+                self.push_finished_note(note, end);
+            }
+        }
+    }
+
+    fn clear_pending_recording_state(&mut self) {
+        self.pending_notes.clear();
+        self.sustained_note_keys.clear();
+        self.sustain_down = false;
     }
 
     fn push_finished_note(&mut self, pending: PendingNote, end_beats: f32) {
@@ -808,6 +938,60 @@ mod tests {
     }
 
     #[test]
+    fn recorder_holds_note_until_sustain_releases() {
+        let mut project = MusicProject::default();
+        project.transport.quantize_on_record = false;
+        let start = Instant::now();
+        project.start_recording(start);
+
+        project.record_midi_event(&note_event(0x90, 60, 100, start));
+        project.record_midi_event(&note_event(
+            0xB0,
+            64,
+            127,
+            start + Duration::from_millis(100),
+        ));
+        project.record_midi_event(&note_event(0x80, 60, 0, start + Duration::from_millis(200)));
+
+        assert!(project.clip.notes.is_empty());
+
+        project.record_midi_event(&note_event(0xB0, 64, 0, start + Duration::from_millis(600)));
+
+        assert_eq!(project.clip.notes.len(), 1);
+        assert!((project.clip.notes[0].duration_beats - 1.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn transport_pause_preserves_position_and_stop_resets() {
+        let mut project = MusicProject::default();
+        project.transport.bpm = 120.0;
+        let start = Instant::now();
+        let one_beat_later = start + Duration::from_millis(500);
+        let two_beats_later = start + Duration::from_millis(1_000);
+
+        project.play(start);
+        assert_eq!(project.current_position_beats(start), 0.0);
+        assert_eq!(project.current_position_beats(one_beat_later), 1.0);
+
+        project.pause(one_beat_later);
+        assert!(!project.transport.playing);
+        assert_eq!(project.current_position_beats(two_beats_later), 1.0);
+
+        project.play(two_beats_later);
+        assert_eq!(project.current_position_beats(two_beats_later), 1.0);
+
+        project.seek(5.0, two_beats_later);
+        assert_eq!(project.current_position_beats(two_beats_later), 5.0);
+        assert_eq!(
+            project.current_position_beats(two_beats_later + Duration::from_millis(500)),
+            6.0
+        );
+
+        project.stop(two_beats_later);
+        assert_eq!(project.current_position_beats(two_beats_later), 0.0);
+    }
+
+    #[test]
     fn active_notes_wrap_across_loop_boundary() {
         let mut project = MusicProject::default();
         project.transport.loop_beats = 4.0;
@@ -861,6 +1045,14 @@ mod tests {
             MIN_NOTE_BEATS
         );
 
+        assert!(project.set_note_duration(2, 10.0));
+        assert_eq!(project.note_by_id(2).unwrap().duration_beats, 4.0);
+
+        assert!(project.set_note_start_preserving_end(2, 2.5));
+        let start_resized = project.note_by_id(2).unwrap();
+        assert_eq!(start_resized.start_beats, 2.5);
+        assert_eq!(start_resized.duration_beats, 1.0);
+
         assert!(project.set_note_velocity(2, 200));
         assert_eq!(project.note_by_id(2).unwrap().velocity, 127);
 
@@ -870,6 +1062,15 @@ mod tests {
         assert_eq!(edited.raw_note, 64);
         assert_eq!(edited.key_index, -1);
         assert!(!edited.mapped_from_lumatone);
+
+        assert!(project.set_note_start_and_pitch(2, 4.75, 65, 349.23));
+        let dragged = project.note_by_id(2).unwrap();
+        assert_eq!(dragged.start_beats, 0.75);
+        assert_eq!(dragged.musical_note, 65);
+        assert_eq!(dragged.freq, 349.23);
+        assert_eq!(dragged.raw_note, 65);
+        assert_eq!(dragged.key_index, -1);
+        assert!(!dragged.mapped_from_lumatone);
 
         let inserted_id = project.add_note(4.25, 0.5, 67, 96, 392.0);
         let inserted = project.note_by_id(inserted_id).unwrap();
@@ -909,5 +1110,56 @@ mod tests {
 
         let parsed = ProjectFile::from_text(&file.to_text()).expect("project should parse");
         assert_eq!(parsed, file);
+    }
+
+    #[test]
+    fn legacy_microtonal_daw_project_fixture_loads() {
+        let parsed = ProjectFile::from_text(include_str!(
+            "../tests/fixtures/projects/legacy_microtonal_daw_project.mtdaw"
+        ))
+        .expect("legacy project fixture should parse");
+
+        assert_eq!(parsed.root_midi, 69);
+        assert_eq!(parsed.base_freq, 440.0);
+        assert_eq!(parsed.project.transport.loop_beats, 8.0);
+        assert!(parsed.project.transport.quantize_on_record);
+        assert!(!parsed.project.transport.metronome_enabled);
+        assert_eq!(parsed.project.next_note_id, 8);
+        assert_eq!(parsed.project.clip.notes.len(), 1);
+        let note = &parsed.project.clip.notes[0];
+        assert_eq!(note.id, 7);
+        assert_eq!(note.key_index, 42);
+        assert_eq!(note.musical_note, 60);
+        assert!(note.mapped_from_lumatone);
+    }
+
+    #[test]
+    fn orbifold_v1_project_fixture_loads() {
+        let parsed = ProjectFile::from_text(include_str!(
+            "../tests/fixtures/projects/orbifold_v1_project.orbifold"
+        ))
+        .expect("current project fixture should parse");
+
+        assert_eq!(parsed.root_midi, 60);
+        assert_eq!(parsed.base_freq, 261.63);
+        assert_eq!(parsed.synth_settings.waveform, Waveform::Triangle);
+        assert_eq!(parsed.project.transport.bpm, 96.0);
+        assert_eq!(parsed.project.transport.loop_beats, 12.0);
+        assert!(parsed.project.transport.overdub);
+        assert_eq!(parsed.project.transport.quantize_grid, QuantizeGrid::Eighth);
+        assert!(!parsed.project.transport.quantize_on_record);
+        assert!(parsed.project.transport.metronome_enabled);
+        assert_eq!(parsed.project.next_note_id, 10);
+        assert_eq!(parsed.project.clip.notes.len(), 1);
+        let note = &parsed.project.clip.notes[0];
+        assert_eq!(note.id, 9);
+        assert_eq!(note.start_beats, 2.5);
+        assert_eq!(note.duration_beats, 0.75);
+        assert_eq!(note.key_index, -1);
+        assert_eq!(note.musical_note, 64);
+        assert_eq!(note.raw_channel, 1);
+        assert_eq!(note.raw_note, 61);
+        assert_eq!(note.velocity, 88);
+        assert!(!note.mapped_from_lumatone);
     }
 }

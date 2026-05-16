@@ -1,0 +1,18 @@
+microtonal_daw_project=1
+root_midi=69
+base_freq=440
+waveform=Sine
+master_gain=0.35
+attack_ms=5
+release_ms=100
+drive=1
+filter_cutoff_hz=18000
+delay_mix=0
+delay_feedback=0.35
+delay_time_ms=240
+bpm=120
+loop_beats=8
+overdub=false
+quantize_grid=1/16
+next_note_id=8
+note	7	1	0.5	42	60	0	60	99	261.63	true

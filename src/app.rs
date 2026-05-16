@@ -6,24 +6,41 @@ use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
+    mpsc::{Receiver, TryRecvError},
 };
 
-use crate::audio::{AudioOutputDevice, build_audio_stream, list_audio_outputs};
+use crate::audio::{AudioOutputDevice, AudioStreamInfo, build_audio_stream, list_audio_outputs};
 use crate::midi::{
-    MidiSharedState, SharedLumatoneMap, SharedMidiCapture, SharedMidiLast, SharedMidiLog,
+    MIDI_CHANNEL_FILTER_ALL, MidiSharedState, SharedLumatoneMap, SharedMidiCapture,
+    SharedMidiChannelFilter, SharedMidiHeld, SharedMidiLast, SharedMidiLog, SharedMidiSustain,
     handle_midi, list_midi_inputs, load_lumatone_map,
 };
 use crate::project::{
-    ClipNote, ProjectFile, ProjectSnapshot, SharedMusicProject, active_key_set, playback_note_id,
+    ClipNote, MusicProject, ProjectFile, ProjectSnapshot, QuantizeGrid, SharedMusicProject,
+    active_key_set, playback_note_id,
 };
 use crate::scala::parse_scala;
 use crate::scale::ScaleState;
 use crate::settings::AppSettings;
-use crate::synth::{SynthHandle, SynthSettings};
+use crate::synth::SynthHandle;
 
 const MAX_PROJECT_HISTORY: usize = 64;
+const MAX_RECENT_PROJECTS: usize = 8;
 const METRONOME_NOTE_ID: u32 = 1_900_000;
+const AUDITION_NOTE_ID: u32 = 1_800_000;
 const AUDIO_ASSETS_DIR: &str = "audio_assets";
+const DEFAULT_ADDED_NOTE_BEATS: f32 = 1.0;
+const GRID_CELL_SNAP_EPSILON: f32 = 0.0001;
+const UI_SCALE_MIN: f32 = 0.75;
+const UI_SCALE_MAX: f32 = 2.0;
+const PIANO_DEFAULT_VISIBLE_BEATS: f32 = 16.0;
+const PIANO_MIN_VISIBLE_BEATS: f32 = 1.0;
+const PIANO_WHEEL_ZOOM_BASE: f32 = 0.85;
+const PIANO_DEFAULT_VISIBLE_PITCH_RADIUS: i32 = 12;
+const PIANO_MIN_VISIBLE_PITCH_RADIUS: i32 = 2;
+const PIANO_MAX_VISIBLE_PITCH_RADIUS: i32 = 64;
+const PIANO_MIN_PITCH: i32 = -128;
+const PIANO_MAX_PITCH: i32 = 256;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LumatonePreset {
@@ -95,17 +112,87 @@ pub(crate) struct AudioAssetItem {
     pub(crate) is_dir: bool,
 }
 
+#[cfg_attr(test, allow(dead_code))]
+#[derive(Clone, Debug)]
+enum FileDialogRequest {
+    OpenProject,
+    SaveProject {
+        file_name: String,
+        cancel_status: String,
+    },
+    OpenScale,
+    OpenKeymap,
+    ImportAudioAsset {
+        kind: AudioAssetKind,
+    },
+}
+
+struct PendingFileDialog {
+    request: FileDialogRequest,
+    receiver: Receiver<Option<PathBuf>>,
+    #[cfg(test)]
+    completion_sender: std::sync::mpsc::Sender<Option<PathBuf>>,
+}
+
+impl FileDialogRequest {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::OpenProject => "project",
+            Self::SaveProject { .. } => "project save",
+            Self::OpenScale => "scale",
+            Self::OpenKeymap => "key map",
+            Self::ImportAudioAsset { kind } => kind.singular_label(),
+        }
+    }
+
+    fn opening_status(&self) -> String {
+        match self {
+            Self::OpenProject => "Opening project dialog".to_string(),
+            Self::SaveProject { .. } => "Opening save dialog".to_string(),
+            Self::OpenScale => "Opening scale dialog".to_string(),
+            Self::OpenKeymap => "Opening key map dialog".to_string(),
+            Self::ImportAudioAsset { kind } => format!("Opening {} import dialog", kind.label()),
+        }
+    }
+
+    fn cancel_status(&self) -> &str {
+        match self {
+            Self::OpenProject => "Open cancelled",
+            Self::SaveProject { cancel_status, .. } => cancel_status,
+            Self::OpenScale => "Scale open cancelled",
+            Self::OpenKeymap => "Key map open cancelled",
+            Self::ImportAudioAsset { .. } => "Asset import cancelled",
+        }
+    }
+
+    #[cfg(not(test))]
+    fn thread_name(&self) -> &'static str {
+        match self {
+            Self::OpenProject => "open-project",
+            Self::SaveProject { .. } => "save-project",
+            Self::OpenScale => "open-scale",
+            Self::OpenKeymap => "open-keymap",
+            Self::ImportAudioAsset { .. } => "import-asset",
+        }
+    }
+}
+
 pub(crate) struct AppState {
     pub(crate) scale_state: Arc<Mutex<ScaleState>>,
     pub(crate) synth: SynthHandle,
     pub(crate) midi_last: SharedMidiLast,
     pub(crate) midi_log: SharedMidiLog,
     pub(crate) midi_capture: SharedMidiCapture,
+    pub(crate) midi_held: SharedMidiHeld,
+    pub(crate) midi_sustain: SharedMidiSustain,
+    pub(crate) midi_channel_filter: SharedMidiChannelFilter,
     pub(crate) music_project: SharedMusicProject,
     pub(crate) midi_connection: Option<MidiInputConnection<()>>,
     pub(crate) midi_inputs: Vec<String>,
     pub(crate) selected_input: usize,
+    pub(crate) connected_midi_input: String,
     pub(crate) audio_stream: Option<cpal::Stream>,
+    pub(crate) audio_stream_info: Option<AudioStreamInfo>,
     pub(crate) audio_outputs: Vec<AudioOutputDevice>,
     pub(crate) selected_audio_output: usize,
     pub(crate) connected_audio_output: String,
@@ -116,30 +203,116 @@ pub(crate) struct AppState {
     pub(crate) audio_assets: Vec<AudioAssetItem>,
     pub(crate) selected_audio_asset: Option<usize>,
     pub(crate) selected_audio_asset_kind: AudioAssetKind,
+    pub(crate) show_asset_browser: bool,
+    pub(crate) show_scale_browser: bool,
+    piano_view_start_beats: f32,
+    piano_view_visible_beats: f32,
+    piano_view_center_pitch: i32,
+    piano_view_pitch_radius: i32,
     pub(crate) midi_debug: Arc<AtomicBool>,
     pub(crate) lumatone_map: SharedLumatoneMap,
     pub(crate) lumatone_path: Option<PathBuf>,
     pub(crate) lumatone_presets: Vec<LumatonePreset>,
     pub(crate) selected_lumatone: usize,
-    pub(crate) show_scale_library: bool,
-    pub(crate) show_inspector: bool,
-    pub(crate) show_key_labels: bool,
-    pub(crate) screenshot_on_start: bool,
-    pub(crate) screenshot_requested: bool,
-    pub(crate) exit_after_screenshot: bool,
     pub(crate) project_path: Option<PathBuf>,
+    pub(crate) project_dirty: bool,
+    clean_project_file: Option<ProjectFile>,
+    last_autosave_project_file: Option<ProjectFile>,
+    autosave_path: PathBuf,
+    pub(crate) autosave_available: bool,
     pub(crate) playback_active_keys: HashSet<u32>,
     pub(crate) selected_clip_note: Option<u64>,
+    copied_clip_note: Option<ClipNote>,
+    last_snap_grid: QuantizeGrid,
     playback_active_notes: HashMap<u64, u32>,
-    undo_stack: Vec<ProjectSnapshot>,
-    redo_stack: Vec<ProjectSnapshot>,
+    undo_stack: Vec<ProjectEditSnapshot>,
+    redo_stack: Vec<ProjectEditSnapshot>,
+    new_project_confirm_pending: bool,
+    open_project_confirm_pending: bool,
+    quit_confirm_pending: bool,
     last_metronome_beat: Option<u32>,
     settings: AppSettings,
     settings_path: PathBuf,
     persist_enabled: bool,
+    pending_file_dialog: Option<PendingFileDialog>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ProjectEditSnapshot {
+    project: ProjectSnapshot,
+    selected_clip_note: Option<u64>,
 }
 
 impl AppState {
+    #[cfg(test)]
+    pub(crate) fn for_layout_tests() -> Self {
+        let settings = AppSettings::default();
+        let settings_path = PathBuf::from("orbifold_layout_test_settings.txt");
+        let mut app = Self {
+            scale_state: Arc::new(Mutex::new(ScaleState::default())),
+            synth: SynthHandle::new(32),
+            midi_last: Arc::new(Mutex::new(None)),
+            midi_log: Arc::new(Mutex::new(Vec::new())),
+            midi_capture: Arc::new(Mutex::new(Default::default())),
+            midi_held: Arc::new(Mutex::new(HashMap::new())),
+            midi_sustain: Arc::new(Mutex::new(Default::default())),
+            midi_channel_filter: Arc::new(std::sync::atomic::AtomicI8::new(
+                MIDI_CHANNEL_FILTER_ALL,
+            )),
+            music_project: Arc::new(Mutex::new(Default::default())),
+            midi_connection: None,
+            midi_inputs: Vec::new(),
+            selected_input: 0,
+            connected_midi_input: String::new(),
+            audio_stream: None,
+            audio_stream_info: None,
+            audio_outputs: Vec::new(),
+            selected_audio_output: 0,
+            connected_audio_output: "default".to_string(),
+            last_status: "Ready".to_string(),
+            scala_path: None,
+            scale_library: Vec::new(),
+            selected_scale_library: 0,
+            audio_assets: Vec::new(),
+            selected_audio_asset: None,
+            selected_audio_asset_kind: AudioAssetKind::Sample,
+            show_asset_browser: true,
+            show_scale_browser: false,
+            piano_view_start_beats: 0.0,
+            piano_view_visible_beats: PIANO_DEFAULT_VISIBLE_BEATS,
+            piano_view_center_pitch: settings.root_midi,
+            piano_view_pitch_radius: PIANO_DEFAULT_VISIBLE_PITCH_RADIUS,
+            midi_debug: Arc::new(AtomicBool::new(false)),
+            lumatone_map: Arc::new(Mutex::new(None)),
+            lumatone_path: None,
+            lumatone_presets: Vec::new(),
+            selected_lumatone: 0,
+            project_path: None,
+            project_dirty: false,
+            clean_project_file: None,
+            last_autosave_project_file: None,
+            autosave_path: autosave_path_for_settings_path(&settings_path),
+            autosave_available: false,
+            playback_active_keys: HashSet::new(),
+            selected_clip_note: None,
+            copied_clip_note: None,
+            last_snap_grid: QuantizeGrid::Sixteenth,
+            playback_active_notes: HashMap::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            new_project_confirm_pending: false,
+            open_project_confirm_pending: false,
+            quit_confirm_pending: false,
+            last_metronome_beat: None,
+            settings,
+            settings_path,
+            persist_enabled: false,
+            pending_file_dialog: None,
+        };
+        app.establish_clean_project_snapshot();
+        app
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         scale_state: Arc<Mutex<ScaleState>>,
@@ -147,25 +320,50 @@ impl AppState {
         midi_last: SharedMidiLast,
         midi_log: SharedMidiLog,
         midi_capture: SharedMidiCapture,
+        midi_held: SharedMidiHeld,
+        midi_sustain: SharedMidiSustain,
+        midi_channel_filter: SharedMidiChannelFilter,
         music_project: SharedMusicProject,
-        audio_stream: cpal::Stream,
+        audio_stream: Option<cpal::Stream>,
+        audio_stream_info: Option<AudioStreamInfo>,
         connected_audio_output: String,
         settings: AppSettings,
         settings_status: Option<String>,
-        screenshot_on_start: bool,
+        probe_audio_outputs: bool,
+        probe_midi_inputs: bool,
     ) -> Self {
+        let startup_status = settings_status.clone();
+        let settings_path = AppSettings::default_path();
+        let autosave_path = autosave_path_for_settings_path(&settings_path);
+        let autosave_available = autosave_path.exists();
+        midi_channel_filter.store(
+            settings
+                .midi_channel_filter
+                .map(|channel| channel as i8)
+                .unwrap_or(MIDI_CHANNEL_FILTER_ALL),
+            Ordering::Relaxed,
+        );
         let mut app = Self {
             scale_state,
             synth,
             midi_last,
             midi_log,
             midi_capture,
+            midi_held,
+            midi_sustain,
+            midi_channel_filter,
             music_project,
             midi_connection: None,
             midi_inputs: Vec::new(),
             selected_input: 0,
-            audio_stream: Some(audio_stream),
-            audio_outputs: list_audio_outputs(),
+            connected_midi_input: String::new(),
+            audio_stream,
+            audio_stream_info,
+            audio_outputs: if probe_audio_outputs {
+                list_audio_outputs()
+            } else {
+                Vec::new()
+            },
             selected_audio_output: 0,
             connected_audio_output,
             last_status: settings_status.unwrap_or_else(|| "Ready".to_string()),
@@ -175,46 +373,236 @@ impl AppState {
             audio_assets: Vec::new(),
             selected_audio_asset: None,
             selected_audio_asset_kind: AudioAssetKind::Sample,
+            show_asset_browser: true,
+            show_scale_browser: false,
+            piano_view_start_beats: 0.0,
+            piano_view_visible_beats: PIANO_DEFAULT_VISIBLE_BEATS,
+            piano_view_center_pitch: settings.root_midi,
+            piano_view_pitch_radius: PIANO_DEFAULT_VISIBLE_PITCH_RADIUS,
             midi_debug: Arc::new(AtomicBool::new(settings.midi_debug)),
             lumatone_map: Arc::new(Mutex::new(None)),
             lumatone_path: None,
             lumatone_presets: Vec::new(),
             selected_lumatone: 0,
-            show_scale_library: true,
-            show_inspector: false,
-            show_key_labels: true,
-            screenshot_on_start,
-            screenshot_requested: false,
-            exit_after_screenshot: screenshot_on_start,
             project_path: None,
+            project_dirty: false,
+            clean_project_file: None,
+            last_autosave_project_file: None,
+            autosave_path,
+            autosave_available,
             playback_active_keys: HashSet::new(),
             selected_clip_note: None,
+            copied_clip_note: None,
+            last_snap_grid: QuantizeGrid::Sixteenth,
             playback_active_notes: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            new_project_confirm_pending: false,
+            open_project_confirm_pending: false,
+            quit_confirm_pending: false,
             last_metronome_beat: None,
             settings,
-            settings_path: AppSettings::default_path(),
+            settings_path,
             persist_enabled: false,
+            pending_file_dialog: None,
         };
 
         app.select_connected_audio_output();
         app.load_lumatone_presets(Path::new("lumatone_factory_presets"));
         app.select_saved_or_default_lumatone();
         app.refresh_scale_library();
-        app.ensure_audio_asset_dirs();
         app.refresh_audio_assets();
         if let Some(path) = app.settings.scala_path.clone()
             && let Err(err) = app.load_scale_path(path, true)
         {
-            app.last_status = format!("Saved Scala load error: {err}");
+            app.set_error_status(format!("Saved Scala load error: {err}"));
         }
-        let preferred_midi = app.settings.midi_input_name.clone();
-        app.refresh_midi_inputs(preferred_midi.as_deref());
-        app.open_midi_input();
+        if probe_midi_inputs {
+            let preferred_midi = app.settings.midi_input_name.clone();
+            app.refresh_midi_inputs(preferred_midi.as_deref());
+            app.open_midi_input();
+        }
+        app.restore_startup_status(startup_status);
         app.persist_enabled = true;
-        app.persist_settings(None);
+        if probe_audio_outputs && probe_midi_inputs {
+            app.persist_settings(None);
+        }
+        app.establish_clean_project_snapshot();
+        if app.autosave_available {
+            app.append_status("Autosave available: click Recover or Dismiss");
+        }
         app
+    }
+
+    fn append_status(&mut self, message: &str) {
+        if self.last_status == "Ready" {
+            self.last_status = message.to_string();
+        } else if !self.last_status.contains(message) {
+            self.last_status = format!("{}; {message}", self.last_status);
+        }
+    }
+
+    fn set_error_status(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        log::error!("{message}");
+        self.last_status = message;
+    }
+
+    fn restore_startup_status(&mut self, startup_status: Option<String>) {
+        let Some(startup_status) = startup_status else {
+            return;
+        };
+        if self.last_status == "Ready" {
+            self.last_status = startup_status;
+            return;
+        }
+        if self.last_status != startup_status && !self.last_status.contains(&startup_status) {
+            self.last_status = format!("{startup_status}; {}", self.last_status);
+        }
+    }
+
+    pub(crate) fn has_pending_file_dialog(&self) -> bool {
+        self.pending_file_dialog.is_some()
+    }
+
+    pub(crate) fn poll_pending_file_dialog(&mut self) {
+        let Some(pending) = self.pending_file_dialog.as_ref() else {
+            return;
+        };
+        match pending.receiver.try_recv() {
+            Ok(selection) => {
+                let pending = self
+                    .pending_file_dialog
+                    .take()
+                    .expect("pending dialog should exist");
+                self.finish_file_dialog(pending.request, selection);
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                let pending = self
+                    .pending_file_dialog
+                    .take()
+                    .expect("pending dialog should exist");
+                self.set_error_status(format!(
+                    "{} dialog failed before returning a result",
+                    pending.request.label()
+                ));
+            }
+        }
+    }
+
+    pub(crate) fn request_open_project_dialog(&mut self) {
+        if !self.request_open_project() {
+            return;
+        }
+        self.begin_file_dialog(FileDialogRequest::OpenProject);
+    }
+
+    pub(crate) fn request_save_project_dialog(
+        &mut self,
+        file_name: impl Into<String>,
+        cancel_status: impl Into<String>,
+    ) {
+        self.begin_file_dialog(FileDialogRequest::SaveProject {
+            file_name: file_name.into(),
+            cancel_status: cancel_status.into(),
+        });
+    }
+
+    pub(crate) fn request_open_scale_dialog(&mut self) {
+        self.begin_file_dialog(FileDialogRequest::OpenScale);
+    }
+
+    pub(crate) fn request_open_keymap_dialog(&mut self) {
+        self.begin_file_dialog(FileDialogRequest::OpenKeymap);
+    }
+
+    pub(crate) fn request_import_audio_asset_dialog(&mut self, kind: AudioAssetKind) {
+        self.begin_file_dialog(FileDialogRequest::ImportAudioAsset { kind });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_file_dialog_label_for_tests(&self) -> Option<&'static str> {
+        self.pending_file_dialog
+            .as_ref()
+            .map(|pending| pending.request.label())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn complete_pending_file_dialog_for_tests(&mut self, selection: Option<PathBuf>) {
+        let Some(pending) = self.pending_file_dialog.as_ref() else {
+            return;
+        };
+        let _ = pending.completion_sender.send(selection);
+    }
+
+    fn begin_file_dialog(&mut self, request: FileDialogRequest) {
+        if self.pending_file_dialog.is_some() {
+            self.last_status = "A file dialog is already open".to_string();
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        #[cfg(not(test))]
+        {
+            let request_for_thread = request.clone();
+            let thread_name = format!("orbifold-{}", request_for_thread.thread_name());
+            if let Err(err) = std::thread::Builder::new()
+                .name(thread_name)
+                .spawn(move || {
+                    let selection = run_file_dialog(request_for_thread);
+                    let _ = sender.send(selection);
+                })
+            {
+                self.set_error_status(format!("Failed to open file dialog: {err}"));
+                return;
+            }
+        }
+        self.last_status = request.opening_status();
+        self.pending_file_dialog = Some(PendingFileDialog {
+            request,
+            receiver,
+            #[cfg(test)]
+            completion_sender: sender,
+        });
+    }
+
+    fn finish_file_dialog(&mut self, request: FileDialogRequest, selection: Option<PathBuf>) {
+        let Some(path) = selection else {
+            self.last_status = request.cancel_status().to_string();
+            return;
+        };
+        match request {
+            FileDialogRequest::OpenProject => self.load_project_path(path),
+            FileDialogRequest::SaveProject { .. } => self.save_project_to_path(path),
+            FileDialogRequest::OpenScale => {
+                if let Err(err) = self.load_scale_path(path, true) {
+                    self.set_error_status(format!("Scala parse error: {err}"));
+                }
+            }
+            FileDialogRequest::OpenKeymap => {
+                if self.load_lumatone_path(path) {
+                    self.mark_project_dirty();
+                }
+            }
+            FileDialogRequest::ImportAudioAsset { kind } => {
+                self.import_audio_asset_path(path, kind)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_autosave_path_for_tests(&mut self, path: PathBuf) {
+        self.last_autosave_project_file = None;
+        self.autosave_path = path;
+        self.autosave_available = self.autosave_path.exists();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_settings_path_for_tests(&mut self, path: PathBuf, persist_enabled: bool) {
+        self.settings_path = path;
+        self.autosave_path = autosave_path_for_settings_path(&self.settings_path);
+        self.autosave_available = self.autosave_path.exists();
+        self.persist_enabled = persist_enabled;
     }
 
     pub(crate) fn refresh_audio_outputs(&mut self) {
@@ -233,19 +621,21 @@ impl AppState {
         };
 
         match build_audio_stream(&self.synth, Some(&name)) {
-            Ok((stream, connected_name, sender)) => {
+            Ok((stream, connected_name, sender, info)) => {
                 if let Err(err) = stream.play() {
-                    self.last_status = format!("Audio playback failed: {err}");
+                    self.set_error_status(format!("Audio playback failed: {err}"));
                     return;
                 }
                 self.synth.install_sender(sender);
                 self.audio_stream = Some(stream);
+                self.audio_stream_info = Some(info);
                 self.connected_audio_output = connected_name.clone();
                 self.last_status = format!("Connected audio output: {connected_name}");
                 self.persist_settings(None);
             }
             Err(err) => {
-                self.last_status = format!("Audio output error: {err}");
+                self.audio_stream_info = None;
+                self.set_error_status(format!("Audio output error: {err}"));
             }
         }
     }
@@ -292,6 +682,9 @@ impl AppState {
             last: self.midi_last.clone(),
             log: self.midi_log.clone(),
             capture: self.midi_capture.clone(),
+            held: self.midi_held.clone(),
+            sustain: self.midi_sustain.clone(),
+            channel_filter: self.midi_channel_filter.clone(),
             lumatone_map: self.lumatone_map.clone(),
             music_project: self.music_project.clone(),
         };
@@ -331,23 +724,20 @@ impl AppState {
             .ok();
 
         if conn.is_some() {
+            self.connected_midi_input = port_name.clone();
             self.last_status = format!("Connected MIDI input: {port_name}");
         } else {
-            self.last_status = format!("Failed to connect MIDI input: {port_name}");
+            self.connected_midi_input.clear();
+            self.set_error_status(format!("Failed to connect MIDI input: {port_name}"));
         }
         self.midi_connection = conn;
         self.persist_settings(None);
     }
 
-    pub(crate) fn set_synth_settings(&mut self, settings: SynthSettings) {
-        match self.synth.set_settings(settings) {
-            Ok(()) => self.persist_settings(None),
-            Err(err) => self.last_status = format!("Synth settings error: {err}"),
-        }
-    }
-
     pub(crate) fn all_notes_off(&mut self) {
         self.stop_playback_notes();
+        self.midi_held.lock().clear();
+        self.midi_sustain.lock().clear();
         match self.synth.all_notes_off() {
             Ok(()) => self.last_status = "All notes off".to_string(),
             Err(err) => self.last_status = format!("All notes off error: {err}"),
@@ -383,6 +773,7 @@ impl AppState {
             .lock()
             .start_recording(std::time::Instant::now());
         self.last_metronome_beat = None;
+        self.mark_project_dirty();
         self.last_status = "Recording".to_string();
     }
 
@@ -401,23 +792,116 @@ impl AppState {
         }
     }
 
+    pub(crate) fn return_transport_to_start(&mut self) {
+        self.seek_transport_to(0.0);
+        self.last_status = "Returned to start".to_string();
+    }
+
+    pub(crate) fn seek_transport_to(&mut self, beat: f32) {
+        self.music_project
+            .lock()
+            .seek(beat, std::time::Instant::now());
+        self.stop_playback_notes();
+        self.last_metronome_beat = None;
+        self.last_status = format!("Seek {:.2}", beat.max(0.0));
+    }
+
+    pub(crate) fn toggle_metronome(&mut self) {
+        let enabled = {
+            let mut project = self.music_project.lock();
+            project.transport.metronome_enabled = !project.transport.metronome_enabled;
+            project.transport.metronome_enabled
+        };
+        self.mark_project_dirty();
+        self.last_status = if enabled {
+            "Metronome on".to_string()
+        } else {
+            "Metronome off".to_string()
+        };
+    }
+
+    pub(crate) fn toggle_quantize_on_record(&mut self) {
+        let enabled = {
+            let mut project = self.music_project.lock();
+            project.transport.quantize_on_record = !project.transport.quantize_on_record;
+            project.transport.quantize_on_record
+        };
+        self.mark_project_dirty();
+        self.last_status = if enabled {
+            "Record quantize on".to_string()
+        } else {
+            "Record quantize off".to_string()
+        };
+    }
+
+    pub(crate) fn toggle_snap_to_grid(&mut self) {
+        let grid = {
+            let project = self.music_project.lock();
+            project.transport.quantize_grid
+        };
+        if grid == QuantizeGrid::Off {
+            self.set_quantize_grid(self.last_snap_grid);
+            self.last_status = format!("Snap on {}", self.last_snap_grid.as_str());
+        } else {
+            self.last_snap_grid = grid;
+            self.set_quantize_grid(QuantizeGrid::Off);
+            self.last_status = "Snap off".to_string();
+        }
+    }
+
+    pub(crate) fn set_quantize_grid(&mut self, grid: QuantizeGrid) {
+        let previous = {
+            let mut project = self.music_project.lock();
+            let previous = project.transport.quantize_grid;
+            project.transport.quantize_grid = grid;
+            previous
+        };
+        if grid != QuantizeGrid::Off {
+            self.last_snap_grid = grid;
+        }
+        if previous != grid {
+            self.mark_project_dirty();
+            self.last_status = format!("Grid {}", grid.as_str());
+        } else {
+            self.last_status = format!("Grid {} unchanged", grid.as_str());
+        }
+    }
+
     pub(crate) fn clear_clip(&mut self) {
         self.stop_playback_notes();
         self.push_project_history();
-        self.music_project.lock().clear_clip();
-        self.selected_clip_note = None;
-        self.last_status = "Clip cleared".to_string();
+        if self.music_project.lock().clear_clip() {
+            self.selected_clip_note = None;
+            self.mark_project_dirty();
+            self.last_status = "Clip cleared".to_string();
+        } else {
+            self.last_status = "Clip already empty".to_string();
+        }
     }
 
     pub(crate) fn quantize_clip(&mut self) {
         self.push_project_history();
-        self.music_project.lock().quantize_clip();
-        self.last_status = "Clip quantized".to_string();
+        if self.music_project.lock().quantize_clip() {
+            self.mark_project_dirty();
+            self.last_status = "Clip quantized".to_string();
+        } else {
+            self.last_status = "Clip quantize unchanged".to_string();
+        }
     }
 
     pub(crate) fn select_clip_note(&mut self, note_id: Option<u64>) {
-        self.selected_clip_note =
-            note_id.filter(|id| self.music_project.lock().note_by_id(*id).is_some());
+        let Some(note_id) = note_id else {
+            self.selected_clip_note = None;
+            return;
+        };
+        let Some(note) = self.music_project.lock().note_by_id(note_id) else {
+            self.selected_clip_note = None;
+            self.last_status = "Selected clip note no longer exists".to_string();
+            return;
+        };
+        self.selected_clip_note = Some(note_id);
+        self.last_status = self.clip_note_status("Selected note", &note);
+        self.audition_clip_note(&note);
     }
 
     pub(crate) fn selected_clip_note(&self) -> Option<ClipNote> {
@@ -425,14 +909,97 @@ impl AppState {
             .and_then(|id| self.music_project.lock().note_by_id(id))
     }
 
-    pub(crate) fn delete_selected_clip_note(&mut self) {
+    pub(crate) fn select_current_clip(&mut self) {
+        self.selected_clip_note = None;
+        let note_count = self.music_project.lock().clip.notes.len();
+        self.last_status = match note_count {
+            0 => "Current clip empty".to_string(),
+            1 => "Selected current clip: 1 note".to_string(),
+            count => format!("Selected current clip: {count} notes"),
+        };
+    }
+
+    pub(crate) fn clear_clip_note_selection(&mut self) -> bool {
+        if self.selected_clip_note.take().is_none() {
+            return false;
+        }
+        self.last_status = "Note selection cleared".to_string();
+        true
+    }
+
+    fn selected_existing_clip_note_id(&mut self) -> Option<u64> {
         let Some(note_id) = self.selected_clip_note else {
             self.last_status = "No clip note selected".to_string();
+            return None;
+        };
+        if self.music_project.lock().note_by_id(note_id).is_none() {
+            self.selected_clip_note = None;
+            self.last_status = "Selected clip note no longer exists".to_string();
+            return None;
+        }
+        Some(note_id)
+    }
+
+    fn selected_existing_clip_note(&mut self) -> Option<ClipNote> {
+        let note_id = self.selected_existing_clip_note_id()?;
+        self.music_project.lock().note_by_id(note_id)
+    }
+
+    pub(crate) fn copy_selected_clip_note(&mut self) {
+        let Some(note) = self.selected_existing_clip_note() else {
+            return;
+        };
+        self.copied_clip_note = Some(note.clone());
+        self.last_status = self.clip_note_status("Copied note", &note);
+    }
+
+    pub(crate) fn can_paste_clip_note(&self) -> bool {
+        self.copied_clip_note.is_some()
+    }
+
+    pub(crate) fn paste_copied_clip_note_at_playhead(&mut self) {
+        let Some(template) = self.copied_clip_note.clone() else {
+            self.last_status = "No copied clip note".to_string();
+            return;
+        };
+        let Some(info) = self.scale_state.lock().note_info(template.musical_note) else {
+            self.last_status = "Copied pitch cannot be tuned".to_string();
+            return;
+        };
+        let start = {
+            let project = self.music_project.lock();
+            let beat = project.current_position_beats(std::time::Instant::now());
+            let loop_beats = project.transport.loop_beats.max(1.0);
+            project
+                .transport
+                .quantize_grid
+                .step_beats()
+                .map(|step| ((beat / step).round() * step).rem_euclid(loop_beats))
+                .unwrap_or_else(|| beat.rem_euclid(loop_beats))
+        };
+        self.push_project_history();
+        let note_id = self.music_project.lock().add_note(
+            start,
+            template.duration_beats,
+            template.musical_note,
+            template.velocity,
+            info.freq,
+        );
+        self.selected_clip_note = Some(note_id);
+        self.mark_project_dirty();
+        if let Some(note) = self.selected_clip_note() {
+            self.last_status = self.clip_note_status("Pasted note", &note);
+        }
+    }
+
+    pub(crate) fn delete_selected_clip_note(&mut self) {
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
             return;
         };
         self.push_project_history();
         if self.music_project.lock().delete_note(note_id) {
             self.selected_clip_note = None;
+            self.mark_project_dirty();
             self.last_status = "Deleted clip note".to_string();
         } else {
             self.last_status = "Selected clip note no longer exists".to_string();
@@ -440,14 +1007,15 @@ impl AppState {
     }
 
     pub(crate) fn duplicate_selected_clip_note(&mut self) {
-        let Some(note_id) = self.selected_clip_note else {
-            self.last_status = "No clip note selected".to_string();
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
             return;
         };
         self.push_project_history();
-        match self.music_project.lock().duplicate_note(note_id) {
+        let duplicated = { self.music_project.lock().duplicate_note(note_id) };
+        match duplicated {
             Some(new_id) => {
                 self.selected_clip_note = Some(new_id);
+                self.mark_project_dirty();
                 self.last_status = "Duplicated clip note".to_string();
             }
             None => self.last_status = "Selected clip note no longer exists".to_string(),
@@ -455,13 +1023,13 @@ impl AppState {
     }
 
     pub(crate) fn nudge_selected_clip_note(&mut self, direction: f32) {
-        let Some(note_id) = self.selected_clip_note else {
-            self.last_status = "No clip note selected".to_string();
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
             return;
         };
         let step = self.music_project.lock().edit_step_beats() * direction;
         self.push_project_history();
         if self.music_project.lock().nudge_note(note_id, step) {
+            self.mark_project_dirty();
             self.last_status = "Moved clip note".to_string();
         } else {
             self.last_status = "Selected clip note no longer exists".to_string();
@@ -469,13 +1037,13 @@ impl AppState {
     }
 
     pub(crate) fn resize_selected_clip_note(&mut self, direction: f32) {
-        let Some(note_id) = self.selected_clip_note else {
-            self.last_status = "No clip note selected".to_string();
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
             return;
         };
         let step = self.music_project.lock().edit_step_beats() * direction;
         self.push_project_history();
         if self.music_project.lock().resize_note(note_id, step) {
+            self.mark_project_dirty();
             self.last_status = "Resized clip note".to_string();
         } else {
             self.last_status = "Selected clip note no longer exists".to_string();
@@ -483,7 +1051,7 @@ impl AppState {
     }
 
     pub(crate) fn set_selected_clip_note_velocity(&mut self, velocity: u8) {
-        let Some(note_id) = self.selected_clip_note else {
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
             return;
         };
         self.push_project_history();
@@ -492,7 +1060,10 @@ impl AppState {
             .lock()
             .set_note_velocity(note_id, velocity)
         {
-            self.last_status = "Updated clip note velocity".to_string();
+            self.mark_project_dirty();
+            if let Some(note) = self.selected_clip_note() {
+                self.last_status = self.clip_note_status("Changed velocity", &note);
+            }
         } else {
             self.last_status = "Selected clip note no longer exists".to_string();
         }
@@ -514,7 +1085,9 @@ impl AppState {
             .lock()
             .set_note_pitch(note.id, musical_note, info.freq)
         {
+            self.mark_project_dirty();
             self.last_status = "Moved clip note pitch".to_string();
+            self.audition_selected_clip_note();
         } else {
             self.last_status = "Selected clip note no longer exists".to_string();
         }
@@ -532,9 +1105,9 @@ impl AppState {
                 .transport
                 .quantize_grid
                 .step_beats()
-                .map(|step| ((beat / step).round() * step).rem_euclid(loop_beats))
+                .map(|step| snap_beat_to_grid_cell(beat, step, loop_beats))
                 .unwrap_or_else(|| beat.rem_euclid(loop_beats));
-            (start, project.edit_step_beats())
+            (start, DEFAULT_ADDED_NOTE_BEATS.min(loop_beats))
         };
         self.push_project_history();
         let note_id =
@@ -542,7 +1115,312 @@ impl AppState {
                 .lock()
                 .add_note(start, duration, musical_note, 96, info.freq);
         self.selected_clip_note = Some(note_id);
-        self.last_status = "Added note".to_string();
+        self.mark_project_dirty();
+        if let Some(note) = self.selected_clip_note() {
+            self.last_status = self.clip_note_status("Added note", &note);
+        }
+        self.audition_selected_clip_note();
+    }
+
+    pub(crate) fn quantize_selected_or_clip(&mut self) {
+        if self.selected_clip_note.is_some() {
+            self.quantize_selected_clip_note();
+        } else {
+            self.quantize_clip();
+        }
+    }
+
+    pub(crate) fn quantize_selected_clip_note(&mut self) {
+        let Some(note_id) = self.selected_existing_clip_note_id() else {
+            return;
+        };
+        self.push_project_history();
+        if self.music_project.lock().quantize_note(note_id) {
+            self.mark_project_dirty();
+            if let Some(note) = self.selected_clip_note() {
+                self.last_status = self.clip_note_status("Quantized note", &note);
+            }
+        } else {
+            self.last_status = "Note quantize unchanged".to_string();
+        }
+    }
+
+    pub(crate) fn drag_clip_note_to(
+        &mut self,
+        note_id: u64,
+        start_beats: f32,
+        musical_note: i32,
+        push_history: bool,
+    ) -> bool {
+        let Some(info) = self.scale_state.lock().note_info(musical_note) else {
+            self.last_status = "Dragged pitch cannot be tuned".to_string();
+            return false;
+        };
+        if push_history {
+            self.push_project_history();
+        }
+        let start_beats = {
+            let project = self.music_project.lock();
+            let loop_beats = project.transport.loop_beats.max(1.0);
+            project
+                .transport
+                .quantize_grid
+                .step_beats()
+                .map(|step| ((start_beats / step).round() * step).rem_euclid(loop_beats))
+                .unwrap_or_else(|| start_beats.rem_euclid(loop_beats))
+        };
+        let changed = self.music_project.lock().set_note_start_and_pitch(
+            note_id,
+            start_beats,
+            musical_note,
+            info.freq,
+        );
+        if changed {
+            self.selected_clip_note = Some(note_id);
+            self.mark_project_dirty();
+            self.last_status = "Moved clip note".to_string();
+        }
+        changed
+    }
+
+    pub(crate) fn resize_clip_note_start_to(
+        &mut self,
+        note_id: u64,
+        start_beats: f32,
+        push_history: bool,
+    ) -> bool {
+        if push_history {
+            self.push_project_history();
+        }
+        let changed = self
+            .music_project
+            .lock()
+            .set_note_start_preserving_end(note_id, start_beats);
+        if changed {
+            self.selected_clip_note = Some(note_id);
+            self.mark_project_dirty();
+            self.last_status = "Resized clip note".to_string();
+        }
+        changed
+    }
+
+    pub(crate) fn resize_clip_note_end_to(
+        &mut self,
+        note_id: u64,
+        end_beats: f32,
+        push_history: bool,
+    ) -> bool {
+        let Some(note) = self.music_project.lock().note_by_id(note_id) else {
+            self.last_status = "Selected clip note no longer exists".to_string();
+            return false;
+        };
+        let loop_beats = self.music_project.lock().transport.loop_beats.max(1.0);
+        let duration = (end_beats - note.start_beats).rem_euclid(loop_beats);
+        if push_history {
+            self.push_project_history();
+        }
+        let changed = self
+            .music_project
+            .lock()
+            .set_note_duration(note_id, duration);
+        if changed {
+            self.selected_clip_note = Some(note_id);
+            self.mark_project_dirty();
+            self.last_status = "Resized clip note".to_string();
+        }
+        changed
+    }
+
+    pub(crate) fn set_clip_note_velocity(
+        &mut self,
+        note_id: u64,
+        velocity: u8,
+        push_history: bool,
+    ) -> bool {
+        if push_history {
+            self.push_project_history();
+        }
+        let changed = self
+            .music_project
+            .lock()
+            .set_note_velocity(note_id, velocity);
+        if changed {
+            self.selected_clip_note = Some(note_id);
+            self.mark_project_dirty();
+            self.last_status = "Updated clip note velocity".to_string();
+        }
+        changed
+    }
+
+    pub(crate) fn ui_scale(&self) -> f32 {
+        self.settings.ui_scale
+    }
+
+    pub(crate) fn adjust_ui_scale(&mut self, delta: f32) {
+        let previous = self.settings.ui_scale;
+        self.settings.ui_scale = (self.settings.ui_scale + delta).clamp(UI_SCALE_MIN, UI_SCALE_MAX);
+        if (self.settings.ui_scale - previous).abs() <= f32::EPSILON {
+            self.last_status = format!("Zoom {:.0}% unchanged", self.settings.ui_scale * 100.0);
+            return;
+        }
+        self.last_status = format!("Zoom {:.0}%", self.settings.ui_scale * 100.0);
+        self.persist_settings(None);
+    }
+
+    pub(crate) fn reset_ui_scale(&mut self) {
+        self.settings.ui_scale = 1.0;
+        self.last_status = "Zoom 100%".to_string();
+        self.persist_settings(None);
+    }
+
+    pub(crate) fn toggle_asset_browser(&mut self) {
+        self.show_asset_browser = !self.show_asset_browser;
+        self.last_status = if self.show_asset_browser {
+            "Asset browser shown".to_string()
+        } else {
+            "Asset browser hidden".to_string()
+        };
+    }
+
+    pub(crate) fn toggle_scale_browser(&mut self) {
+        self.show_scale_browser = !self.show_scale_browser;
+        self.last_status = if self.show_scale_browser {
+            "Scale browser shown".to_string()
+        } else {
+            "Scale browser hidden".to_string()
+        };
+    }
+
+    pub(crate) fn toggle_audio_mute(&mut self) {
+        let muted = !self.synth.muted();
+        match self.synth.set_muted(muted) {
+            Ok(()) => {
+                self.last_status = if muted {
+                    "Audio muted".to_string()
+                } else {
+                    "Audio unmuted".to_string()
+                };
+            }
+            Err(err) => self.set_error_status(format!("Audio mute error: {err}")),
+        }
+    }
+
+    pub(crate) fn midi_channel_filter(&self) -> Option<u8> {
+        let value = self.midi_channel_filter.load(Ordering::Relaxed);
+        (value != MIDI_CHANNEL_FILTER_ALL).then_some(value as u8)
+    }
+
+    pub(crate) fn midi_channel_filter_label(&self) -> String {
+        self.midi_channel_filter()
+            .map(|channel| format!("Ch {}", channel + 1))
+            .unwrap_or_else(|| "All".to_string())
+    }
+
+    pub(crate) fn cycle_midi_channel_filter(&mut self) {
+        let next = match self.midi_channel_filter() {
+            None => 0,
+            Some(15) => MIDI_CHANNEL_FILTER_ALL,
+            Some(channel) => channel as i8 + 1,
+        };
+        self.midi_channel_filter.store(next, Ordering::Relaxed);
+        self.settings.midi_channel_filter = (next != MIDI_CHANNEL_FILTER_ALL).then_some(next as u8);
+        self.last_status = format!("MIDI filter {}", self.midi_channel_filter_label());
+        self.persist_settings(None);
+    }
+
+    pub(crate) fn piano_view_start_beats(&self, loop_beats: f32) -> f32 {
+        clamp_piano_view_start(
+            self.piano_view_start_beats,
+            loop_beats.max(1.0),
+            self.piano_view_visible_beats(loop_beats),
+        )
+    }
+
+    pub(crate) fn piano_view_visible_beats(&self, loop_beats: f32) -> f32 {
+        self.piano_view_visible_beats.clamp(
+            PIANO_MIN_VISIBLE_BEATS,
+            loop_beats.max(PIANO_MIN_VISIBLE_BEATS),
+        )
+    }
+
+    pub(crate) fn piano_pitch_range(&self) -> (i32, i32) {
+        let radius = self.piano_view_pitch_radius.clamp(
+            PIANO_MIN_VISIBLE_PITCH_RADIUS,
+            PIANO_MAX_VISIBLE_PITCH_RADIUS,
+        );
+        (
+            (self.piano_view_center_pitch - radius).clamp(PIANO_MIN_PITCH, PIANO_MAX_PITCH),
+            (self.piano_view_center_pitch + radius).clamp(PIANO_MIN_PITCH, PIANO_MAX_PITCH),
+        )
+    }
+
+    pub(crate) fn scroll_piano_roll(&mut self, delta_beats: f32, delta_pitches: i32) -> bool {
+        let loop_beats = self.music_project.lock().transport.loop_beats.max(1.0);
+        let visible = self.piano_view_visible_beats(loop_beats);
+        let start = clamp_piano_view_start(
+            self.piano_view_start_beats + delta_beats,
+            loop_beats,
+            visible,
+        );
+        let center =
+            (self.piano_view_center_pitch + delta_pitches).clamp(PIANO_MIN_PITCH, PIANO_MAX_PITCH);
+        let changed = (start - self.piano_view_start_beats).abs() > f32::EPSILON
+            || center != self.piano_view_center_pitch;
+        self.piano_view_start_beats = start;
+        self.piano_view_center_pitch = center;
+        if changed {
+            self.last_status = format!(
+                "Piano scroll beat {:.2} pitch {}",
+                self.piano_view_start_beats, self.piano_view_center_pitch
+            );
+        }
+        changed
+    }
+
+    pub(crate) fn zoom_piano_roll(&mut self, delta: f32, anchor_beat: f32) -> bool {
+        let loop_beats = self.music_project.lock().transport.loop_beats.max(1.0);
+        let old_visible = self.piano_view_visible_beats(loop_beats);
+        let factor = PIANO_WHEEL_ZOOM_BASE.powf(delta.signum());
+        let new_visible = (old_visible * factor).clamp(PIANO_MIN_VISIBLE_BEATS, loop_beats);
+        if (new_visible - old_visible).abs() <= f32::EPSILON {
+            return false;
+        }
+        let old_start = self.piano_view_start_beats(loop_beats);
+        let anchor_fraction = ((anchor_beat - old_start) / old_visible).clamp(0.0, 1.0);
+        self.piano_view_visible_beats = new_visible;
+        self.piano_view_start_beats = clamp_piano_view_start(
+            anchor_beat - new_visible * anchor_fraction,
+            loop_beats,
+            new_visible,
+        );
+        self.last_status = format!("Piano zoom {new_visible:.2} beats");
+        true
+    }
+
+    pub(crate) fn zoom_piano_roll_pitches(&mut self, delta: f32, anchor_pitch: i32) -> bool {
+        let old_radius = self.piano_view_pitch_radius;
+        let step = if delta > 0.0 {
+            -1
+        } else if delta < 0.0 {
+            1
+        } else {
+            0
+        };
+        let new_radius = (old_radius + step).clamp(
+            PIANO_MIN_VISIBLE_PITCH_RADIUS,
+            PIANO_MAX_VISIBLE_PITCH_RADIUS,
+        );
+        if new_radius == old_radius {
+            return false;
+        }
+        let old_center = self.piano_view_center_pitch;
+        self.piano_view_pitch_radius = new_radius;
+        self.piano_view_center_pitch = (anchor_pitch
+            + ((old_center - anchor_pitch) as f32 * new_radius as f32 / old_radius as f32).round()
+                as i32)
+            .clamp(PIANO_MIN_PITCH, PIANO_MAX_PITCH);
+        self.last_status = format!("Piano pitch zoom {} rows", new_radius * 2 + 1);
+        true
     }
 
     pub(crate) fn can_undo_project_edit(&self) -> bool {
@@ -558,9 +1436,10 @@ impl AppState {
             self.last_status = "Nothing to undo".to_string();
             return;
         };
-        let current = self.music_project.lock().snapshot();
+        let current = self.project_edit_snapshot();
         self.redo_stack.push(current);
         self.apply_project_history_snapshot(snapshot);
+        self.refresh_project_dirty_state();
         self.last_status = "Undid clip edit".to_string();
     }
 
@@ -569,21 +1448,21 @@ impl AppState {
             self.last_status = "Nothing to redo".to_string();
             return;
         };
-        let current = self.music_project.lock().snapshot();
+        let current = self.project_edit_snapshot();
         self.undo_stack.push(current);
         self.apply_project_history_snapshot(snapshot);
+        self.refresh_project_dirty_state();
         self.last_status = "Redid clip edit".to_string();
     }
 
     pub(crate) fn update_music_playback(&mut self) {
         let now = std::time::Instant::now();
         let (desired_notes, current_beat, metronome_enabled) = {
-            let mut project = self.music_project.lock();
+            let project = self.music_project.lock();
             if !project.transport.playing {
                 (Vec::new(), None, false)
             } else {
                 let beat = project.current_position_beats(now);
-                project.set_last_position(beat);
                 (
                     project.active_notes_at(beat),
                     Some(beat),
@@ -627,12 +1506,29 @@ impl AppState {
 
     pub(crate) fn save_project_to_path(&mut self, path: PathBuf) {
         let project_file = self.project_file_snapshot();
-        match std::fs::write(&path, project_file.to_text()) {
+        let temp_path = temporary_project_save_path(&path);
+        let backup_path = project_backup_path(&path);
+        let result = std::fs::write(&temp_path, project_file.to_text()).and_then(|()| {
+            if path.exists() {
+                let _ = std::fs::remove_file(&backup_path);
+                std::fs::rename(&path, &backup_path)?;
+            }
+            std::fs::rename(&temp_path, &path)
+        });
+        match result {
             Ok(()) => {
                 self.project_path = Some(path.clone());
+                self.clean_project_file = Some(project_file);
+                self.project_dirty = false;
+                self.add_recent_project_path(path.clone());
+                self.clear_autosave_file();
                 self.last_status = format!("Saved project: {}", path.display());
+                self.persist_settings(None);
             }
-            Err(err) => self.last_status = format!("Project save error: {err}"),
+            Err(err) => {
+                let _ = std::fs::remove_file(&temp_path);
+                self.set_error_status(format!("Project save error ({}): {err}", path.display()));
+            }
         }
     }
 
@@ -649,44 +1545,187 @@ impl AppState {
         let data = match std::fs::read_to_string(&path) {
             Ok(data) => data,
             Err(err) => {
-                self.last_status = format!("Project open error: {err}");
+                self.set_error_status(format!("Project open error ({}): {err}", path.display()));
                 return;
             }
         };
         let project = match ProjectFile::from_text(&data) {
             Ok(project) => project,
             Err(err) => {
-                self.last_status = format!("Project parse error: {err}");
+                self.set_error_status(format!("Project parse error ({}): {err}", path.display()));
                 return;
             }
         };
 
-        self.stop_playback_notes();
-        {
-            let mut state = self.scale_state.lock();
-            state.root_midi = project.root_midi;
-            state.base_freq = project.base_freq;
-        }
-        if let Err(err) = self.synth.set_settings(project.synth_settings) {
-            self.last_status = format!("Synth settings error: {err}");
+        if let Err(err) = self.apply_project_file(project.clone()) {
+            self.set_error_status(format!("Project load error ({}): {err}", path.display()));
             return;
         }
-        if let Some(scala_path) = project.scala_path.clone()
-            && let Err(err) = self.load_scale_path(scala_path, true)
-        {
-            self.last_status = format!("Project Scala load error: {err}");
-            return;
-        }
-        if let Some(lumatone_path) = project.lumatone_path.clone() {
-            self.load_lumatone_path(lumatone_path);
-        }
-        self.music_project.lock().apply_snapshot(project.project);
-        self.selected_clip_note = None;
+        self.project_path = Some(path.clone());
+        self.clean_project_file = Some(project);
+        self.project_dirty = false;
         self.undo_stack.clear();
         self.redo_stack.clear();
-        self.last_metronome_beat = None;
-        self.project_path = Some(path.clone());
+        self.add_recent_project_path(path.clone());
         self.last_status = format!("Loaded project: {}", path.display());
+        self.persist_settings(None);
+    }
+
+    pub(crate) fn start_new_project(&mut self) {
+        if self.project_dirty && !self.new_project_confirm_pending {
+            self.new_project_confirm_pending = true;
+            self.open_project_confirm_pending = false;
+            self.last_status = "Unsaved changes: click New again to discard".to_string();
+            return;
+        }
+        let discarded_dirty_project = self.project_dirty;
+        self.stop_playback_notes();
+        self.music_project
+            .lock()
+            .apply_snapshot(MusicProject::default().snapshot());
+        self.selected_clip_note = None;
+        self.project_path = None;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.establish_clean_project_snapshot();
+        self.new_project_confirm_pending = false;
+        self.open_project_confirm_pending = false;
+        self.quit_confirm_pending = false;
+        self.last_status = if discarded_dirty_project {
+            "Discarded changes and started new project".to_string()
+        } else {
+            "New project".to_string()
+        };
+    }
+
+    pub(crate) fn request_open_project(&mut self) -> bool {
+        if self.project_dirty && !self.open_project_confirm_pending {
+            self.open_project_confirm_pending = true;
+            self.new_project_confirm_pending = false;
+            self.last_status = "Unsaved changes: click Open again to discard".to_string();
+            return false;
+        }
+        self.open_project_confirm_pending = false;
+        true
+    }
+
+    pub(crate) fn request_quit(&mut self) -> bool {
+        if self.project_dirty && !self.quit_confirm_pending {
+            self.quit_confirm_pending = true;
+            self.last_status = "Unsaved changes: close again to quit".to_string();
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn cancel_discard_confirmation(&mut self) -> bool {
+        if !(self.new_project_confirm_pending
+            || self.open_project_confirm_pending
+            || self.quit_confirm_pending)
+        {
+            return false;
+        }
+        self.new_project_confirm_pending = false;
+        self.open_project_confirm_pending = false;
+        self.quit_confirm_pending = false;
+        self.last_status = "Discard cancelled".to_string();
+        true
+    }
+
+    pub(crate) fn new_project_confirm_pending(&self) -> bool {
+        self.new_project_confirm_pending
+    }
+
+    pub(crate) fn open_project_confirm_pending(&self) -> bool {
+        self.open_project_confirm_pending
+    }
+
+    pub(crate) fn recover_autosave_project(&mut self) {
+        if self.project_dirty {
+            self.last_status =
+                "Unsaved changes: save or discard before recovering autosave".to_string();
+            return;
+        }
+        let path = self.autosave_path.clone();
+        let data = match std::fs::read_to_string(&path) {
+            Ok(data) => data,
+            Err(err) => {
+                self.set_error_status(format!("Autosave open error ({}): {err}", path.display()));
+                return;
+            }
+        };
+        let project = match ProjectFile::from_text(&data) {
+            Ok(project) => project,
+            Err(err) => {
+                self.set_error_status(format!("Autosave parse error ({}): {err}", path.display()));
+                return;
+            }
+        };
+        if let Err(err) = self.apply_project_file(project) {
+            self.set_error_status(format!("Autosave load error ({}): {err}", path.display()));
+            return;
+        }
+        self.project_path = None;
+        self.clean_project_file = None;
+        self.project_dirty = true;
+        self.autosave_available = true;
+        self.last_status = "Recovered autosave: use Save to keep it".to_string();
+    }
+
+    pub(crate) fn dismiss_autosave_project(&mut self) {
+        if self.project_dirty {
+            self.last_status =
+                "Unsaved changes: save or discard before dismissing autosave".to_string();
+            return;
+        }
+        match std::fs::remove_file(&self.autosave_path) {
+            Ok(()) => {
+                self.autosave_available = false;
+                self.last_autosave_project_file = None;
+                self.last_status = "Autosave dismissed".to_string();
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                self.autosave_available = false;
+                self.last_status = "Autosave dismissed".to_string();
+            }
+            Err(err) => self.set_error_status(format!(
+                "Autosave dismiss error ({}): {err}",
+                self.autosave_path.display()
+            )),
+        }
+    }
+
+    pub(crate) fn recent_project_paths(&self) -> &[PathBuf] {
+        &self.settings.recent_projects
+    }
+
+    pub(crate) fn open_most_recent_project(&mut self) {
+        self.open_recent_project_at(0);
+    }
+
+    pub(crate) fn open_recent_project_at(&mut self, index: usize) {
+        if self.project_dirty {
+            self.last_status = "Unsaved changes: save or discard before opening recent".to_string();
+            return;
+        }
+        let Some(path) = self.settings.recent_projects.get(index).cloned() else {
+            self.last_status = "No recent project".to_string();
+            return;
+        };
+        self.load_project_path(path);
+    }
+
+    pub(crate) fn forget_most_recent_project(&mut self) {
+        self.forget_recent_project_at(0);
+    }
+
+    pub(crate) fn forget_recent_project_at(&mut self, index: usize) {
+        if index >= self.settings.recent_projects.len() {
+            self.last_status = "No recent project".to_string();
+            return;
+        }
+        let path = self.settings.recent_projects.remove(index);
+        self.last_status = format!("Forgot recent project: {}", path.display());
         self.persist_settings(None);
     }
 
@@ -713,12 +1752,12 @@ impl AppState {
         let synth = self.synth.clone();
         std::thread::spawn(move || {
             if let Err(err) = synth.note_on(69, 440.0, 0.6) {
-                eprintln!("Audio command error: {err}");
+                log::error!("Audio command error: {err}");
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
             if let Err(err) = synth.note_off(69) {
-                eprintln!("Audio command error: {err}");
+                log::error!("Audio command error: {err}");
             }
         });
     }
@@ -729,13 +1768,20 @@ impl AppState {
         self.playback_active_keys.clear();
         for note in active {
             if let Err(err) = self.synth.note_off(note) {
-                self.last_status = format!("Playback note-off error: {err}");
+                self.set_error_status(format!("Playback note-off error: {err}"));
             }
         }
     }
 
+    fn project_edit_snapshot(&self) -> ProjectEditSnapshot {
+        ProjectEditSnapshot {
+            project: self.music_project.lock().snapshot(),
+            selected_clip_note: self.selected_clip_note,
+        }
+    }
+
     fn push_project_history(&mut self) {
-        let snapshot = self.music_project.lock().snapshot();
+        let snapshot = self.project_edit_snapshot();
         if self.undo_stack.last() == Some(&snapshot) {
             return;
         }
@@ -746,15 +1792,87 @@ impl AppState {
         self.redo_stack.clear();
     }
 
-    fn apply_project_history_snapshot(&mut self, snapshot: ProjectSnapshot) {
+    fn apply_project_history_snapshot(&mut self, snapshot: ProjectEditSnapshot) {
         self.stop_playback_notes();
-        self.music_project.lock().apply_snapshot(snapshot);
+        self.music_project.lock().apply_snapshot(snapshot.project);
+        self.selected_clip_note = snapshot.selected_clip_note;
         if let Some(note_id) = self.selected_clip_note
             && self.music_project.lock().note_by_id(note_id).is_none()
         {
             self.selected_clip_note = None;
         }
         self.last_metronome_beat = None;
+    }
+
+    pub(crate) fn mark_project_dirty(&mut self) {
+        self.refresh_project_dirty_state();
+        if !self.project_dirty {
+            self.project_dirty = true;
+        }
+        self.write_project_autosave();
+        self.new_project_confirm_pending = false;
+        self.open_project_confirm_pending = false;
+        self.quit_confirm_pending = false;
+    }
+
+    fn refresh_project_dirty_state(&mut self) {
+        self.project_dirty = self
+            .clean_project_file
+            .as_ref()
+            .is_none_or(|clean| clean != &self.project_file_snapshot());
+    }
+
+    fn establish_clean_project_snapshot(&mut self) {
+        self.clean_project_file = Some(self.project_file_snapshot());
+        self.project_dirty = false;
+        self.last_autosave_project_file = None;
+    }
+
+    fn write_project_autosave(&mut self) {
+        if !self.persist_enabled {
+            return;
+        }
+        let project_file = self.project_file_snapshot();
+        if self.last_autosave_project_file.as_ref() == Some(&project_file) {
+            return;
+        }
+        if let Some(parent) = self.autosave_path.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(err) = std::fs::create_dir_all(parent)
+        {
+            self.autosave_available = false;
+            self.set_error_status(format!(
+                "Project autosave error ({}): {err}",
+                self.autosave_path.display()
+            ));
+            return;
+        }
+        match std::fs::write(&self.autosave_path, project_file.to_text()) {
+            Ok(()) => {
+                self.autosave_available = true;
+                self.last_autosave_project_file = Some(project_file);
+            }
+            Err(err) => {
+                self.autosave_available = false;
+                self.set_error_status(format!(
+                    "Project autosave error ({}): {err}",
+                    self.autosave_path.display()
+                ));
+            }
+        }
+    }
+
+    fn clear_autosave_file(&mut self) {
+        match std::fs::remove_file(&self.autosave_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => log::error!(
+                "Failed to remove autosave file {}: {err}",
+                self.autosave_path.display()
+            ),
+        }
+        self.autosave_available = false;
+        self.last_autosave_project_file = None;
     }
 
     fn update_metronome(&mut self, beat: f32, enabled: bool) {
@@ -775,13 +1893,47 @@ impl AppState {
         let freq = if accented { 1760.0 } else { 1174.66 };
         let velocity = if accented { 0.34 } else { 0.22 };
         if let Err(err) = synth.note_on(METRONOME_NOTE_ID, freq, velocity) {
-            self.last_status = format!("Metronome error: {err}");
+            self.set_error_status(format!("Metronome error: {err}"));
             return;
         }
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(45));
             if let Err(err) = synth.note_off(METRONOME_NOTE_ID) {
-                eprintln!("Metronome note-off error: {err}");
+                log::error!("Metronome note-off error: {err}");
+            }
+        });
+    }
+
+    fn clip_note_status(&self, prefix: &str, note: &ClipNote) -> String {
+        let scale = self.scale_state.lock();
+        let (degree, octave) = scale
+            .note_info(note.musical_note)
+            .map(|info| (info.degree + 1, info.octave))
+            .unwrap_or((0, 0));
+        format!(
+            "{prefix} d{degree} o{octave} beat {:.2} len {:.2} vel {}",
+            note.start_beats, note.duration_beats, note.velocity
+        )
+    }
+
+    fn audition_selected_clip_note(&mut self) {
+        if let Some(note) = self.selected_clip_note() {
+            self.audition_clip_note(&note);
+        }
+    }
+
+    fn audition_clip_note(&mut self, note: &ClipNote) {
+        let synth = self.synth.clone();
+        let freq = note.freq;
+        let velocity = (note.velocity as f32 / 127.0).clamp(0.0, 1.0);
+        if let Err(err) = synth.note_on(AUDITION_NOTE_ID, freq, velocity) {
+            log::error!("Audition note-on error: {err}");
+            return;
+        }
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(140));
+            if let Err(err) = synth.note_off(AUDITION_NOTE_ID) {
+                log::error!("Audition note-off error: {err}");
             }
         });
     }
@@ -796,6 +1948,55 @@ impl AppState {
             synth_settings: self.synth.settings(),
             project: self.music_project.lock().snapshot(),
         }
+    }
+
+    fn apply_project_file(&mut self, project: ProjectFile) -> Result<(), String> {
+        self.stop_playback_notes();
+        if let Some(scala_path) = project.scala_path.clone() {
+            let scale = parse_scala(&scala_path).map_err(|err| {
+                format!("Project Scala load error ({}): {err}", scala_path.display())
+            })?;
+            self.scale_state.lock().scale = scale;
+            self.scala_path = Some(scala_path.clone());
+            self.add_scale_library_path(scala_path);
+        } else {
+            let mut state = self.scale_state.lock();
+            state.scale = ScaleState::default().scale;
+            self.scala_path = None;
+        }
+        {
+            let mut state = self.scale_state.lock();
+            state.root_midi = project.root_midi;
+            state.base_freq = project.base_freq;
+        }
+        self.synth
+            .set_settings(project.synth_settings)
+            .map_err(|err| format!("Synth settings error: {err}"))?;
+        if let Some(lumatone_path) = project.lumatone_path.clone() {
+            if !self.load_lumatone_path(lumatone_path.clone()) {
+                self.lumatone_path = None;
+                *self.lumatone_map.lock() = None;
+                self.append_status(&format!(
+                    "Key map unavailable ({})",
+                    lumatone_path.display()
+                ));
+            }
+        } else {
+            self.lumatone_path = None;
+            *self.lumatone_map.lock() = None;
+        }
+        self.music_project.lock().apply_snapshot(project.project);
+        self.selected_clip_note = None;
+        self.last_metronome_beat = None;
+        Ok(())
+    }
+
+    fn add_recent_project_path(&mut self, path: PathBuf) {
+        self.settings
+            .recent_projects
+            .retain(|recent| !same_path(recent, &path));
+        self.settings.recent_projects.insert(0, path);
+        self.settings.recent_projects.truncate(MAX_RECENT_PROJECTS);
     }
 
     pub(crate) fn load_scale_path(
@@ -818,27 +2019,54 @@ impl AppState {
     }
 
     pub(crate) fn load_selected_library_scale(&mut self) {
-        let Some(path) = self
+        let Some((index, item)) = self
             .scale_library
             .get(self.selected_scale_library)
-            .map(|item| item.path.clone())
+            .cloned()
+            .map(|item| (self.selected_scale_library, item))
         else {
             self.last_status = "No scale selected".to_string();
             return;
         };
-        if let Err(err) = self.load_scale_path(path, true) {
-            self.last_status = format!("Scala parse error: {err}");
+        if !item.path.exists() {
+            self.scale_library.remove(index);
+            if self.selected_scale_library >= self.scale_library.len() {
+                self.selected_scale_library = self.scale_library.len().saturating_sub(1);
+            }
+            self.last_status = format!("Removed missing scale: {}", item.name);
+            self.persist_settings(None);
+            return;
+        }
+        match self.load_scale_path(item.path, true) {
+            Ok(()) => self.mark_project_dirty(),
+            Err(err) => self.set_error_status(format!("Scala parse error: {err}")),
         }
     }
 
     pub(crate) fn remove_selected_library_scale(&mut self) {
         if self.selected_scale_library < self.scale_library.len() {
-            self.scale_library.remove(self.selected_scale_library);
+            let item = self.scale_library.remove(self.selected_scale_library);
             if self.selected_scale_library >= self.scale_library.len() {
                 self.selected_scale_library = self.scale_library.len().saturating_sub(1);
             }
+            self.last_status = format!("Removed scale: {}", item.name);
             self.persist_settings(None);
         }
+    }
+
+    pub(crate) fn selected_library_scale_is_loaded(&self) -> bool {
+        let Some(item) = self.scale_library.get(self.selected_scale_library) else {
+            return false;
+        };
+        self.scala_path
+            .as_ref()
+            .is_some_and(|path| same_path(path, &item.path))
+    }
+
+    pub(crate) fn can_remove_selected_library_scale(&self) -> bool {
+        self.scale_library
+            .get(self.selected_scale_library)
+            .is_some_and(|item| !item.path.starts_with("scales"))
     }
 
     pub(crate) fn refresh_scale_library(&mut self) {
@@ -876,6 +2104,10 @@ impl AppState {
         if self.selected_scale_library >= self.scale_library.len() {
             self.selected_scale_library = self.scale_library.len().saturating_sub(1);
         }
+        self.last_status = format!(
+            "Refreshed scale library: {} scales",
+            self.scale_library.len()
+        );
     }
 
     pub(crate) fn ensure_audio_asset_dirs(&mut self) {
@@ -908,6 +2140,10 @@ impl AppState {
         {
             self.selected_audio_asset = None;
         }
+        self.last_status = format!(
+            "Refreshed asset browser: {} assets",
+            self.audio_assets.len()
+        );
     }
 
     pub(crate) fn select_audio_asset(&mut self, index: usize) {
@@ -967,7 +2203,7 @@ impl AppState {
         self.load_lumatone_path(path);
     }
 
-    pub(crate) fn load_lumatone_path(&mut self, path: PathBuf) {
+    pub(crate) fn load_lumatone_path(&mut self, path: PathBuf) -> bool {
         match load_lumatone_map(&path) {
             Ok(map) => {
                 let key_count = map.len();
@@ -984,9 +2220,11 @@ impl AppState {
                 }
                 self.last_status = format!("Loaded key map: {name} ({key_count} keys)");
                 self.persist_settings(None);
+                true
             }
             Err(err) => {
-                self.last_status = format!("Key map load error: {err}");
+                self.set_error_status(format!("Key map load error: {err}"));
+                false
             }
         }
     }
@@ -994,6 +2232,7 @@ impl AppState {
     pub(crate) fn reload_lumatone_presets(&mut self) {
         let current = self.lumatone_path.clone();
         self.load_lumatone_presets(Path::new("lumatone_factory_presets"));
+        self.last_status = format!("Refreshed key map presets: {}", self.lumatone_presets.len());
         if let Some(path) = current {
             self.add_lumatone_preset_path(path.clone());
             if self.select_lumatone_by_path(&path) {
@@ -1041,6 +2280,7 @@ impl AppState {
         self.settings.scala_path = self.scala_path.clone();
         self.settings.lumatone_path = self.lumatone_path.clone();
         self.settings.midi_debug = self.midi_debug.load(Ordering::Relaxed);
+        self.settings.midi_channel_filter = self.midi_channel_filter();
         self.settings.apply_synth_settings(self.synth.settings());
         self.settings.scale_library = self
             .scale_library
@@ -1145,6 +2385,80 @@ impl AppState {
     }
 }
 
+pub(crate) fn audio_stream_info_label(info: &AudioStreamInfo) -> String {
+    let khz = info.sample_rate_hz as f32 / 1000.0;
+    let rate = if (khz - khz.round()).abs() < 0.01 {
+        format!("{khz:.0} kHz")
+    } else {
+        format!("{khz:.1} kHz")
+    };
+    let buffer = info
+        .buffer_frames
+        .map(|frames| {
+            let ms = frames as f32 * 1000.0 / info.sample_rate_hz.max(1) as f32;
+            format!(" {frames}f {ms:.1}ms")
+        })
+        .unwrap_or_default();
+    format!(
+        "{rate} {}ch {}{}",
+        info.channels, info.sample_format, buffer
+    )
+}
+
+fn autosave_path_for_settings_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("orbifold_settings")
+        .replace("_settings", "");
+    path.with_file_name(format!("{stem}_autosave.orbifold"))
+}
+
+fn temporary_project_save_path(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("project.orbifold");
+    path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+}
+
+fn project_backup_path(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("project.orbifold");
+    path.with_file_name(format!("{name}.bak"))
+}
+
+fn clamp_piano_view_start(start: f32, loop_beats: f32, visible_beats: f32) -> f32 {
+    start.clamp(0.0, (loop_beats - visible_beats).max(0.0))
+}
+
+#[cfg(not(test))]
+fn run_file_dialog(request: FileDialogRequest) -> Option<PathBuf> {
+    match request {
+        FileDialogRequest::OpenProject => rfd::FileDialog::new()
+            .add_filter("Orbifold project", &["orbifold", "mtdaw"])
+            .pick_file(),
+        FileDialogRequest::SaveProject { file_name, .. } => rfd::FileDialog::new()
+            .add_filter("Orbifold project", &["orbifold"])
+            .set_file_name(&file_name)
+            .save_file(),
+        FileDialogRequest::OpenScale => rfd::FileDialog::new()
+            .add_filter("Scala scale", &["scl"])
+            .pick_file(),
+        FileDialogRequest::OpenKeymap => rfd::FileDialog::new()
+            .add_filter("Lumatone key map", &["ltn"])
+            .pick_file(),
+        FileDialogRequest::ImportAudioAsset { kind } => rfd::FileDialog::new()
+            .add_filter(kind.label(), kind.extensions())
+            .pick_file(),
+    }
+}
+
 fn same_path(left: &Path, right: &Path) -> bool {
     if left == right {
         return true;
@@ -1204,6 +2518,13 @@ fn audio_asset_name(root: &Path, path: &Path, is_dir: bool) -> String {
         name.push('/');
     }
     name
+}
+
+fn snap_beat_to_grid_cell(beat: f32, step: f32, loop_beats: f32) -> f32 {
+    let loop_beats = loop_beats.max(1.0);
+    let step = step.max(f32::EPSILON);
+    let wrapped = beat.rem_euclid(loop_beats);
+    (((wrapped + GRID_CELL_SNAP_EPSILON) / step).floor() * step).rem_euclid(loop_beats)
 }
 
 fn is_supported_audio_asset_file(kind: AudioAssetKind, path: &Path) -> bool {
