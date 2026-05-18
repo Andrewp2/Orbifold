@@ -83,7 +83,9 @@ The headless smoke currently covers:
   panel-visibility settings,
 - browser UI-scale action persistence and runtime reload,
 - deterministic Web MIDI refresh, explicit `MIDIInput.open()` connection when
-  available, note-on, note-off, and recording through a browser MIDI stub,
+  available, note-on, note-off, and recording through a browser MIDI stub, plus
+  visible recovery states for browsers where Web MIDI is unavailable or
+  permission is denied,
 - Web Audio output discovery through the browser device APIs when sink
   selection is available, named-output routing through a browser audio-output
   stub, fallback `Browser audio` discovery when it is not, audio-context

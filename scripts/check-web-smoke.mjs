@@ -213,6 +213,7 @@ async function runSmoke(browserWsUrl) {
     await verifyWorkspaceResizeGestures(send, sessionId);
     await verifyBrowserFileFlows(send, sessionId, artifactsDir);
     await verifyBrowserMidiFlow(send, sessionId);
+    await verifyBrowserMidiFailureFlows(send);
     await verifyBrowserAudioFlow(send, sessionId);
     await verifyBrowserAudioFallbackFlow(send);
     await verifyBrowserPersistenceAfterReload(send, sessionId);
@@ -1354,6 +1355,97 @@ async function sendBrowserMidiMessage(send, sessionId, data) {
     },
     sessionId
   );
+}
+
+async function verifyBrowserMidiFailureFlows(send) {
+  await verifyBrowserMidiFailureFlow(send, {
+    label: "midi-unavailable",
+    setupSource: `(() => {
+      Object.defineProperty(navigator, "requestMIDIAccess", {
+        configurable: true,
+        value: undefined,
+      });
+    })();`,
+    expectedDiagnostic: "Web MIDI: unavailable",
+    refreshStatus: "MIDI refresh error: Web MIDI is not available in this browser",
+    connectStatus: "MIDI connection error: Web MIDI is not available in this browser",
+  });
+  await verifyBrowserMidiFailureFlow(send, {
+    label: "midi-denied",
+    setupSource: `(() => {
+      Object.defineProperty(navigator, "requestMIDIAccess", {
+        configurable: true,
+        value: async () => {
+          throw new DOMException("Permission denied by smoke test", "NotAllowedError");
+        },
+      });
+    })();`,
+    expectedDiagnostic: "Web MIDI: permission denied",
+    refreshStatus: "MIDI refresh error: Web MIDI request failed: Permission denied by smoke test",
+    connectStatus: "MIDI connection error: Web MIDI request failed: Permission denied by smoke test",
+  });
+}
+
+async function verifyBrowserMidiFailureFlow(
+  send,
+  { label, setupSource, expectedDiagnostic, refreshStatus, connectStatus }
+) {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Runtime.enable", {}, sessionId);
+    await send("Log.enable", {}, sessionId);
+    await send("Network.enable", {}, sessionId);
+    await send("Page.enable", {}, sessionId);
+    await send(
+      "Page.addScriptToEvaluateOnNewDocument",
+      { source: setupSource },
+      sessionId
+    );
+    await send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 1200,
+        height: 760,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId
+    );
+    await send("Page.navigate", { url: urlForSmokeVariant(label) }, sessionId);
+    await waitForOrbifoldReady(send, sessionId);
+
+    await dispatchBrowserAction(send, sessionId, "midi.refresh");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.midiInputCount === 0 &&
+        state.connectedMidiInput === "" &&
+        state.browserMidiInputNames === "" &&
+        state.browserMidiDiagnostic.includes(expectedDiagnostic) &&
+        state.lastStatus.includes(refreshStatus),
+      `browser MIDI ${label} refresh did not surface a visible unavailable/permission error`
+    );
+
+    await dispatchBrowserAction(send, sessionId, "midi.connect");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.midiInputCount === 0 &&
+        state.connectedMidiInput === "" &&
+        state.browserMidiInputNames === "" &&
+        state.browserMidiDiagnostic.includes(expectedDiagnostic) &&
+        state.lastStatus.includes(connectStatus),
+      `browser MIDI ${label} connect did not stay disconnected with a visible error`
+    );
+  } finally {
+    await send("Target.closeTarget", { targetId }).catch(() => {});
+  }
 }
 
 async function verifyBrowserAudioFlow(send, sessionId) {

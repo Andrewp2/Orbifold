@@ -3273,12 +3273,26 @@ let orbifoldMidiAccess = null;
 let orbifoldMidiInput = null;
 let orbifoldMidiMessages = [];
 
+function orbifoldBrowserErrorMessage(error) {
+  return error && error.message ? error.message : String(error);
+}
+
 async function ensureMidiAccess() {
   if (!navigator.requestMIDIAccess) {
+    document.body.dataset.orbifoldMidiAccessState = "unavailable";
+    document.body.dataset.orbifoldBrowserMidiInputNames = "";
     throw "Web MIDI is not available in this browser";
   }
   if (!orbifoldMidiAccess) {
-    orbifoldMidiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    document.body.dataset.orbifoldMidiAccessState = "permission requested";
+    try {
+      orbifoldMidiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    } catch (error) {
+      document.body.dataset.orbifoldMidiAccessState = "permission denied";
+      document.body.dataset.orbifoldBrowserMidiInputNames = "";
+      throw `Web MIDI request failed: ${orbifoldBrowserErrorMessage(error)}`;
+    }
+    document.body.dataset.orbifoldMidiAccessState = "ready";
     orbifoldMidiAccess.onstatechange = (event) => {
       const port = event && event.port ? event.port : null;
       document.body.dataset.orbifoldMidiStateChangeName = port ? midiInputName(port) : "";
@@ -3300,7 +3314,6 @@ function midiInputName(input) {
 export async function request_midi_inputs_js() {
   const access = await ensureMidiAccess();
   const names = midiInputs(access).map(midiInputName);
-  document.body.dataset.orbifoldMidiAccessState = "ready";
   document.body.dataset.orbifoldBrowserMidiInputNames = names.join("\n");
   return names;
 }
