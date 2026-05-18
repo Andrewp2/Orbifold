@@ -199,6 +199,7 @@ async function runSmoke(browserWsUrl) {
     await verifyHighDpiCanvasScale(send, sessionId);
     await verifyToolbarButtonClicks(send, sessionId);
     await verifyActionDispatch(send, sessionId);
+    await verifyBrowserShortcutMapping(send, sessionId);
     await verifyKeyboardShortcut(send, sessionId);
     await verifyBrowserTextEditActions(send, sessionId);
     await verifyPianoGridDoubleClick(send, sessionId);
@@ -1542,6 +1543,98 @@ async function waitForPianoGeometry(send, sessionId, predicate) {
     await delay(250);
   }
   throw new Error(`piano automation geometry unavailable: ${JSON.stringify(geometry)}`);
+}
+
+async function verifyBrowserShortcutMapping(send, sessionId) {
+  const probeResult = await send(
+    "Runtime.evaluate",
+    {
+      expression: `typeof window.__orbifoldShortcutActionForTest === "function"`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  if (probeResult.result.value !== true) {
+    throw new Error("browser shortcut mapping probe was not installed");
+  }
+
+  for (const shortcut of browserShortcutMappingCases()) {
+    const actual = await evaluateShortcutAction(send, sessionId, shortcut.event);
+    if (actual !== shortcut.action) {
+      const expected = shortcut.action || "(none)";
+      const observed = actual || "(none)";
+      throw new Error(
+        `browser shortcut mapping mismatch for ${shortcut.label}: expected ${expected}, got ${observed}`
+      );
+    }
+  }
+}
+
+function browserShortcutMappingCases() {
+  return [
+    shortcutCase("Ctrl+N", { key: "n", ctrlKey: true }, "file.new"),
+    shortcutCase("Ctrl+O", { key: "o", ctrlKey: true }, "file.open"),
+    shortcutCase("Ctrl+S", { key: "s", ctrlKey: true }, "file.save"),
+    shortcutCase("Ctrl+Shift+S", { key: "s", ctrlKey: true, shiftKey: true }, "file.save_as"),
+    shortcutCase("Cmd+S", { key: "s", metaKey: true }, "file.save"),
+    shortcutCase("Ctrl+Z", { key: "z", ctrlKey: true }, "edit.undo"),
+    shortcutCase("Ctrl+Y", { key: "y", ctrlKey: true }, "edit.redo"),
+    shortcutCase("Ctrl+Shift+Z", { key: "z", ctrlKey: true, shiftKey: true }, "edit.redo"),
+    shortcutCase("Ctrl+C", { key: "c", ctrlKey: true }, "clip.copy_note"),
+    shortcutCase("Ctrl+V", { key: "v", ctrlKey: true }, "clip.paste_note"),
+    shortcutCase("Ctrl++", { key: "+", ctrlKey: true }, "ui.scale_up"),
+    shortcutCase("Ctrl+=", { key: "=", ctrlKey: true }, "ui.scale_up"),
+    shortcutCase("Ctrl+-", { key: "-", ctrlKey: true }, "ui.scale_down"),
+    shortcutCase("Ctrl+0", { key: "0", ctrlKey: true }, "ui.scale_reset"),
+    shortcutCase("Space", { key: " " }, "transport.play_stop"),
+    shortcutCase("Home", { key: "Home" }, "transport.prev"),
+    shortcutCase("Escape", { key: "Escape" }, "edit.escape"),
+    shortcutCase("?", { key: "?" }, "help.shortcuts"),
+    shortcutCase("Shift+/", { key: "/", shiftKey: true }, "help.shortcuts"),
+    shortcutCase("R", { key: "r" }, "transport.record"),
+    shortcutCase("M", { key: "m" }, "transport.metronome"),
+    shortcutCase("Shift+Q", { key: "q", shiftKey: true }, "transport.record_quantize"),
+    shortcutCase("Q", { key: "q" }, "clip.quantize"),
+    shortcutCase("G", { key: "g" }, "transport.snap"),
+    shortcutCase("P", { key: "p" }, "audio.all_off"),
+    shortcutCase("N", { key: "n" }, "clip.add_note"),
+    shortcutCase("D", { key: "d" }, "clip.duplicate_note"),
+    shortcutCase("Delete", { key: "Delete" }, "clip.delete_note"),
+    shortcutCase("Backspace", { key: "Backspace" }, "clip.delete_note"),
+    shortcutCase("ArrowLeft", { key: "ArrowLeft" }, "clip.nudge_left"),
+    shortcutCase("ArrowRight", { key: "ArrowRight" }, "clip.nudge_right"),
+    shortcutCase("ArrowUp", { key: "ArrowUp" }, "clip.pitch_up"),
+    shortcutCase("ArrowDown", { key: "ArrowDown" }, "clip.pitch_down"),
+    shortcutCase("Shift+ArrowLeft", { key: "ArrowLeft", shiftKey: true }, "clip.shorter"),
+    shortcutCase("Shift+ArrowRight", { key: "ArrowRight", shiftKey: true }, "clip.longer"),
+    shortcutCase("Shift+ArrowUp", { key: "ArrowUp", shiftKey: true }, "clip.velocity_up"),
+    shortcutCase("Shift+ArrowDown", { key: "ArrowDown", shiftKey: true }, "clip.velocity_down"),
+    shortcutCase("+", { key: "+" }, "piano.zoom_in"),
+    shortcutCase("=", { key: "=" }, "piano.zoom_in"),
+    shortcutCase("-", { key: "-" }, "piano.zoom_out"),
+    shortcutCase("Alt+R", { key: "r", altKey: true }, ""),
+    shortcutCase("Ctrl+Alt+S", { key: "s", ctrlKey: true, altKey: true }, ""),
+    shortcutCase("Repeat Space", { key: " ", repeat: true }, ""),
+    shortcutCase("Repeat ArrowRight", { key: "ArrowRight", repeat: true }, "clip.nudge_right"),
+    shortcutCase("Shift+N", { key: "n", shiftKey: true }, ""),
+    shortcutCase("Ctrl+Shift+C", { key: "c", ctrlKey: true, shiftKey: true }, ""),
+  ];
+}
+
+function shortcutCase(label, event, action) {
+  return { label, event, action };
+}
+
+async function evaluateShortcutAction(send, sessionId, event) {
+  const result = await send(
+    "Runtime.evaluate",
+    {
+      expression: `window.__orbifoldShortcutActionForTest(${JSON.stringify(event)})`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  return result.result.value ?? "";
 }
 
 async function verifyKeyboardShortcut(send, sessionId) {

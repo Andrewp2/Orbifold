@@ -2400,6 +2400,15 @@ export function install_browser_keyboard_shortcuts_js() {
   window.orbifoldDispatchAction = queueOrbifoldAction;
   window.orbifoldDispatchTextInput = (action, text) => queueOrbifoldTextEdit(action, "text", text);
   window.orbifoldDispatchTextKey = (action, key) => queueOrbifoldTextEdit(action, "key", key);
+  window.__orbifoldShortcutActionForTest = (eventInit) => orbifoldShortcutAction({
+    key: "",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    repeat: false,
+    ...(eventInit || {}),
+  }) || "";
   document.body.dataset.orbifoldKeyboardShortcuts = "installed";
   window.addEventListener("keydown", (event) => {
     const action = orbifoldShortcutAction(event);

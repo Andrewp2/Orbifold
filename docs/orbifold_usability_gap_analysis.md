@@ -268,6 +268,9 @@ Progress since this gap list was first written:
 - The web smoke test now stubs named browser audio outputs and `setSinkId`, so
   CI exercises the named-output routing path instead of only proving the generic
   fallback `Browser audio` path.
+- The web smoke test now checks the documented browser shortcut mapping table,
+  including file/edit commands, transport keys, clip-editing keys, UI zoom,
+  repeat behavior, and ignored Alt-modified chords.
 - Browser text edit actions now share the native handler for BPM, root note,
   base frequency, scale search, and asset search, so the web runtime no longer
   silently ignores Operad `TextEdit` actions for those controls.

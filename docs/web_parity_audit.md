@@ -58,7 +58,9 @@ The headless smoke currently covers:
 - wasm startup through the first Orbifold frame readiness signal,
 - WebGPU availability and high-DPI canvas backing-store scaling,
 - ordinary toolbar clicks through the canvas hit-testing path,
-- action dispatch and keyboard shortcut dispatch,
+- action dispatch, the documented browser shortcut mapping table, representative
+  keyboard shortcut dispatch through the live canvas, and ignored Alt/repeat
+  shortcut cases,
 - piano-roll double-click creation, note drag, edge resize, wheel pan/zoom,
   arrangement/piano-ruler seeking, loop-end dragging, and workspace splitter
   drags,
