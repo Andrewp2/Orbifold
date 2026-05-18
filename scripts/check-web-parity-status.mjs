@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+
+import { pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
+import { resolveReportPath, validateManualDeviceReport } from "./check-web-manual-report.mjs";
+import {
+  resolveParityCompletionReportPath,
+  validateParityCompletionReportFile,
+} from "./check-web-parity-complete.mjs";
+
+if (isCliEntrypoint()) {
+  const target = process.argv[2] ?? "reports";
+
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.error("usage: scripts/check-web-parity-status.mjs [reports-dir]");
+    process.exit(2);
+  }
+
+  const status = await inspectWebParityStatus(target);
+  printWebParityStatus(status);
+  process.exit(status.complete ? 0 : 1);
+}
+
+export async function inspectWebParityStatus(target = "reports") {
+  const status = {
+    target,
+    complete: false,
+    manualReport: await inspectManualReport(target),
+    completionReport: await inspectCompletionReport(target),
+  };
+  status.complete = status.manualReport.ok && status.completionReport.ok;
+  return status;
+}
+
+async function inspectManualReport(target) {
+  try {
+    const path = await resolveReportPath(target);
+    const report = JSON.parse(await readFile(path, "utf8"));
+    validateManualDeviceReport(report);
+    return {
+      ok: true,
+      path,
+      targetUrl: report.targetUrl,
+      generatedAt: report.generatedAt,
+      checkCount: report.checks.length,
+    };
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error) };
+  }
+}
+
+async function inspectCompletionReport(target) {
+  try {
+    const path = await resolveParityCompletionReportPath(target);
+    await validateParityCompletionReportFile(path);
+    return { ok: true, path };
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error) };
+  }
+}
+
+export function printWebParityStatus(status) {
+  console.log(`web parity status: ${status.complete ? "complete" : "incomplete"}`);
+  console.log(`reports target: ${status.target}`);
+  printItem("manual device report", status.manualReport, formatManualReport);
+  printItem("completion gate report", status.completionReport, (item) => item.path);
+  if (!status.complete) {
+    console.log("");
+    console.log("next required evidence:");
+    if (!status.manualReport.ok) {
+      console.log(
+        "- run scripts/check-web-manual-devices.mjs against the deployed Pages URL with real Web Audio and Web MIDI hardware"
+      );
+      console.log("- then run scripts/check-web-manual-report.mjs reports/");
+      return;
+    }
+    console.log(
+      "- run scripts/check-web-parity-gate.mjs against the deployed Pages URL with --report reports/"
+    );
+    console.log("- then run scripts/check-web-parity-complete.mjs reports/");
+  }
+}
+
+function printItem(label, item, format) {
+  if (item.ok) {
+    console.log(`[ok] ${label}: ${format(item)}`);
+  } else {
+    console.log(`[missing] ${label}: ${item.error}`);
+  }
+}
+
+function formatManualReport(item) {
+  return `${item.path} (${item.checkCount} checks, target ${item.targetUrl}, ${item.generatedAt})`;
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}

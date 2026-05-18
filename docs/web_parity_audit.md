@@ -53,6 +53,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
+./scripts/check-web-parity-status.mjs reports/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
 ./scripts/check-web-parity-complete.mjs reports/
 ```
@@ -171,6 +172,10 @@ these manual checks before treating web as parity-complete:
   browser runtime exceptions, console errors/assertions, network load failures,
   or browser log errors, so unchecked or partial JSON cannot stand in for the
   browser session.
+- Run `./scripts/check-web-parity-status.mjs reports/` when you need a quick
+  diagnostic of which saved evidence artifact is missing. This is an
+  orientation check only; it does not replace the parity gate or completion
+  verifier.
 - Run `./scripts/check-web-parity-gate.mjs` against the deployed Pages URL with
   the validated manual report. This wraps the deployed live/layout/smoke checks,
   visual capture, manual report validation, and live-vs-manual artifact

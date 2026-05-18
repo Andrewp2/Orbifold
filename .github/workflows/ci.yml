@@ -51,6 +51,7 @@ jobs:
           node scripts/test-web-manual-report-validator.mjs
           node scripts/test-web-parity-complete.mjs
           node scripts/test-web-parity-gate.mjs
+          node scripts/test-web-parity-status.mjs
           node scripts/test-web-smoke-helpers.mjs
           node scripts/test-web-visual-layout-helpers.mjs
 

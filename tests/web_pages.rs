@@ -104,6 +104,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node scripts/test-web-manual-report-validator.mjs",
         "node scripts/test-web-parity-complete.mjs",
         "node scripts/test-web-parity-gate.mjs",
+        "node scripts/test-web-parity-status.mjs",
         "node scripts/test-web-smoke-helpers.mjs",
         "node scripts/test-web-visual-layout-helpers.mjs",
         "cargo clippy --all-targets -- -D warnings",
@@ -627,6 +628,53 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         assert!(
             docs.contains("./scripts/check-web-parity-complete.mjs reports/"),
             "web parity completion workflow should be documented"
+        );
+    }
+}
+
+#[test]
+fn web_parity_status_script_reports_missing_evidence() {
+    let script = include_str!("../scripts/check-web-parity-status.mjs");
+    let behavior_test = include_str!("../scripts/test-web-parity-status.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+
+    for required in [
+        "usage: scripts/check-web-parity-status.mjs [reports-dir]",
+        "inspectWebParityStatus",
+        "validateManualDeviceReport(report)",
+        "validateParityCompletionReportFile(path)",
+        "web parity status:",
+        "manual device report",
+        "completion gate report",
+        "next required evidence:",
+        "scripts/check-web-manual-devices.mjs",
+        "scripts/check-web-parity-gate.mjs",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-parity-status.mjs should report saved evidence status: {required}"
+        );
+    }
+
+    for required in [
+        "inspectWebParityStatus(path.join(tempDir, \"missing\"))",
+        "missingStatus.complete, false",
+        "completeStatus.complete, true",
+        "completeStatus.manualReport.checkCount, 10",
+        "web parity status behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-parity-status.mjs should behavior-test {required}"
+        );
+    }
+
+    for docs in [readme, audit, checklist] {
+        assert!(
+            docs.contains("./scripts/check-web-parity-status.mjs reports/"),
+            "web parity status workflow should be documented"
         );
     }
 }
