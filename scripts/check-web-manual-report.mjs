@@ -264,12 +264,30 @@ export function validateManualDeviceReport(report) {
     throw new Error("manualRealMidiRecording evidence should show a new recorded note");
   }
 
+  requireObject(report.states.beforeBrowserFileFlows, "states.beforeBrowserFileFlows");
   requireObject(report.states.afterBrowserFileFlows, "states.afterBrowserFileFlows");
   requirePositiveNumber(
     report.states.afterBrowserFileFlows.frameCount,
     "states.afterBrowserFileFlows.frameCount"
   );
   const browserFileEvidence = requirePassedCheckEvidence("manualBrowserFileFlows");
+  requireObject(browserFileEvidence.before, "manualBrowserFileFlows.before");
+  requireObject(browserFileEvidence.after, "manualBrowserFileFlows.after");
+  requireBrowserFileFlowCheckpoint(browserFileEvidence.before, "manualBrowserFileFlows.before");
+  requireBrowserFileFlowCheckpoint(browserFileEvidence.after, "manualBrowserFileFlows.after");
+  if (
+    !(
+      Number(browserFileEvidence.after.timeOrigin) >
+      Number(browserFileEvidence.before.timeOrigin)
+    )
+  ) {
+    throw new Error("manualBrowserFileFlows evidence should show a browser reload checkpoint");
+  }
+  requireEqual(
+    browserFileEvidence.after.navigationType,
+    "reload",
+    "manualBrowserFileFlows.after.navigationType"
+  );
   requireTruthy(
     browserFileEvidence.downloadFileName,
     "manualBrowserFileFlows.downloadFileName"
@@ -566,6 +584,13 @@ function requireManualVisualState(state, label) {
   if (Number(state.canvasRectHeight) < Number(state.canvasClientHeight) - 2) {
     throw new Error(`${label}.canvasRectHeight should cover canvas client height`);
   }
+}
+
+function requireBrowserFileFlowCheckpoint(state, label) {
+  requirePositiveNumber(state.frameCount, `${label}.frameCount`);
+  requireTruthy(state.locationHref, `${label}.locationHref`);
+  requireTruthy(state.navigationType, `${label}.navigationType`);
+  requirePositiveNumber(state.timeOrigin, `${label}.timeOrigin`);
 }
 
 function manualVisualStateShowsResize(initial, inspectedLarge) {

@@ -179,9 +179,10 @@ these manual checks before treating web as parity-complete:
   confirmation, and deployed artifact fingerprint passes validation. The
   validator also requires evidence fields for downloaded project bytes, imported
   assets, loaded scale/key-map state, shortcut state, piano-roll geometry,
-  initial and resized/high-DPI visual state, text-audit counters, verifier host,
-  Chrome, real click-coordinate, frame-state, and timestamp metadata, and
-  rejects reports that recorded browser runtime exceptions, console
+  browser reload persistence after file flows, initial and resized/high-DPI
+  visual state, text-audit counters, verifier host, Chrome, real
+  click-coordinate, frame-state, and timestamp metadata, and rejects reports
+  that recorded browser runtime exceptions, console
   errors/assertions, network load failures, or browser log errors, so unchecked
   or partial JSON cannot stand in for the browser session.
 - Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`

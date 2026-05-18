@@ -302,6 +302,7 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterMidiRecording.lastStatus,
   });
 
+  report.states.beforeBrowserFileFlows = await evaluateProjectState();
   await promptEnter(
     "Use the browser UI with real file pickers: save/open a .orbifold project, load a Scala .scl scale, load a Lumatone .ltn key map, import a supported WAV asset, reload the page, and confirm the state restores. Press Enter when finished."
   );
@@ -322,6 +323,8 @@ async function runManualDeviceCheck() {
     lumatoneLoaded: report.states.afterBrowserFileFlows.lumatoneLoaded,
     downloadFileName: report.states.afterBrowserFileFlows.downloadFileName,
     downloadSize: report.states.afterBrowserFileFlows.downloadSize,
+    before: pickBrowserFileFlowEvidence(report.states.beforeBrowserFileFlows),
+    after: pickBrowserFileFlowEvidence(report.states.afterBrowserFileFlows),
   });
 
   report.states.beforeShortcutParity = await evaluateProjectState();
@@ -691,6 +694,9 @@ async function evaluateProjectState() {
         assetCount: Number(document.body.dataset.orbifoldAudioAssetCount ?? 0),
         project: localStorage.getItem("orbifold.project.v1") || "",
         settings: localStorage.getItem("orbifold.settings.v1") || "",
+        locationHref: window.location.href,
+        navigationType: performance.getEntriesByType("navigation")[0]?.type ?? "",
+        timeOrigin: Number(performance.timeOrigin ?? 0),
         lastStatus: document.body.dataset.orbifoldLastStatus ?? "",
         frameCount: Number(document.body.dataset.orbifoldFrameCount ?? 0),
         transportPlaying: document.body.dataset.orbifoldTransportPlaying === "1",
@@ -934,6 +940,24 @@ function pickShortcutParityEvidence(state) {
     downloadFileName: state.downloadFileName,
     downloadSize: state.downloadSize,
     project: state.project,
+  };
+}
+
+function pickBrowserFileFlowEvidence(state) {
+  return {
+    frameCount: state.frameCount,
+    locationHref: state.locationHref,
+    navigationType: state.navigationType,
+    timeOrigin: state.timeOrigin,
+    project: state.project,
+    settings: state.settings,
+    assetCount: state.assetCount,
+    scaleDescription: state.scaleDescription,
+    scalaPath: state.scalaPath,
+    lumatonePath: state.lumatonePath,
+    lumatoneLoaded: state.lumatoneLoaded,
+    downloadFileName: state.downloadFileName,
+    downloadSize: state.downloadSize,
   };
 }
 

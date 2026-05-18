@@ -120,7 +120,8 @@ without opening the interactive session. The
 full manual run opens a real Chrome session, prompts for audible Web Audio,
 hardware Web MIDI, real file-picker flows, shortcut parity, and piano-roll
 workflow confirmation, records initial plus resized/high-DPI visual evidence
-and the deployed artifact fingerprint, and writes a JSON report under
+plus browser reload persistence evidence and the deployed artifact fingerprint,
+and writes a JSON report under
 `reports/`. Validate that report with
 `./scripts/check-web-manual-report.mjs reports/` before treating the manual
 device pass as release evidence. Add `--finalize` to the manual-device command

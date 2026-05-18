@@ -115,6 +115,23 @@ assertRejects(
 
 assertRejects(
   withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualBrowserFileFlows").evidence;
+    evidence.after.timeOrigin = evidence.before.timeOrigin;
+  }),
+  "manualBrowserFileFlows evidence should show a browser reload checkpoint"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualBrowserFileFlows"
+    ).evidence.after.navigationType = "navigate";
+  }),
+  'manualBrowserFileFlows.after.navigationType expected "reload"'
+);
+
+assertRejects(
+  withChange(report, (draft) => {
     draft.states.afterPianoRollParity.frameCount = 0;
   }),
   "states.afterPianoRollParity.frameCount should be a positive number"
@@ -297,6 +314,16 @@ function validManualReport() {
       scalaPath: "browser_5_edo.scl",
       lumatonePath: "classic.ltn",
       lumatoneLoaded: true,
+      before: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 10,
+      }),
+      after: fileFlowState({
+        navigationType: "reload",
+        timeOrigin: 2000,
+        frameCount: 12,
+      }),
     },
   });
   checks.push({
@@ -440,6 +467,11 @@ function validManualReport() {
       afterMidiRecording: {
         noteCount: 3,
       },
+      beforeBrowserFileFlows: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 10,
+      }),
       afterBrowserFileFlows: {
         frameCount: 10,
       },
@@ -456,6 +488,24 @@ function validManualReport() {
         frameCount: 13,
       },
     },
+  };
+}
+
+function fileFlowState({ navigationType, timeOrigin, frameCount }) {
+  return {
+    frameCount,
+    locationHref: "https://andrewp2.github.io/Orbifold/",
+    navigationType,
+    timeOrigin,
+    project: "orbifold_project=1\n",
+    settings: "ui_scale=1\n",
+    assetCount: 1,
+    scaleDescription: "Browser 5-EDO",
+    scalaPath: "browser_5_edo.scl",
+    lumatonePath: "classic.ltn",
+    lumatoneLoaded: true,
+    downloadFileName: "project.orbifold",
+    downloadSize: 128,
   };
 }
 

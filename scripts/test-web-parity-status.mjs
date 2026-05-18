@@ -143,6 +143,16 @@ function validManualReport() {
       scalaPath: "browser_5_edo.scl",
       lumatonePath: "classic.ltn",
       lumatoneLoaded: true,
+      before: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 10,
+      }),
+      after: fileFlowState({
+        navigationType: "reload",
+        timeOrigin: 2000,
+        frameCount: 12,
+      }),
     },
   });
   checks.push({
@@ -278,6 +288,11 @@ function validManualReport() {
       afterMidiRecording: {
         noteCount: 3,
       },
+      beforeBrowserFileFlows: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 10,
+      }),
       afterBrowserFileFlows: {
         frameCount: 10,
       },
@@ -366,6 +381,24 @@ function capture(label, width, height, deviceScaleFactor, evidencePath) {
       itemCount: 20,
       unsupportedCount: 0,
     },
+  };
+}
+
+function fileFlowState({ navigationType, timeOrigin, frameCount }) {
+  return {
+    frameCount,
+    locationHref: "https://example.invalid/Orbifold/",
+    navigationType,
+    timeOrigin,
+    project: "orbifold_project=1\n",
+    settings: "ui_scale=1\n",
+    assetCount: 1,
+    scaleDescription: "Browser 5-EDO",
+    scalaPath: "browser_5_edo.scl",
+    lumatonePath: "classic.ltn",
+    lumatoneLoaded: true,
+    downloadFileName: "project.orbifold",
+    downloadSize: 128,
   };
 }
 
