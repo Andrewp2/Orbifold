@@ -90,12 +90,20 @@ assertRejects(
 
 assertRejects(
   withChange(report, (draft) => {
-    draft.checks.find((check) => check.name === "manualRealMidiInput").evidence.after = {
-      lastMidiStatus: 0,
-      lastMidiNote: -1,
-    };
+    draft.checks.find(
+      (check) => check.name === "manualRealMidiInput"
+    ).evidence.noteOn.lastMidiVelocity = 0;
   }),
-  "manualRealMidiInput evidence should show a changed MIDI status or note"
+  "manualRealMidiInput.noteOn should show a MIDI note-on with velocity"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualRealMidiInput"
+    ).evidence.noteOff.lastMidiNote = 61;
+  }),
+  "manualRealMidiInput.noteOff should show a matching MIDI note-off"
 );
 
 assertRejects(
@@ -303,10 +311,17 @@ function validManualReport() {
       before: {
         lastMidiStatus: 0,
         lastMidiNote: -1,
+        lastMidiVelocity: 0,
       },
-      after: {
+      noteOn: {
         lastMidiStatus: 144,
         lastMidiNote: 60,
+        lastMidiVelocity: 96,
+      },
+      noteOff: {
+        lastMidiStatus: 128,
+        lastMidiNote: 60,
+        lastMidiVelocity: 0,
       },
     },
   });
@@ -482,9 +497,15 @@ function validManualReport() {
         connectedMidiInput: "Hardware MIDI",
         midiInputConnection: "open",
       },
-      afterRealMidiNote: {
+      duringRealMidiNote: {
         lastMidiStatus: 144,
         lastMidiNote: 60,
+        lastMidiVelocity: 96,
+      },
+      afterRealMidiNote: {
+        lastMidiStatus: 128,
+        lastMidiNote: 60,
+        lastMidiVelocity: 0,
       },
       afterMidiRecording: {
         noteCount: 3,

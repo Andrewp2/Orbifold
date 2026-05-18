@@ -238,20 +238,26 @@ export function validateManualDeviceReport(report) {
     "states.afterMidiConnect.midiInputConnection"
   );
 
-  requireObject(report.states.afterRealMidiNote, "states.afterRealMidiNote");
-  if (
-    !(Number(report.states.afterRealMidiNote.lastMidiStatus) > 0) &&
-    !(Number(report.states.afterRealMidiNote.lastMidiNote) >= 0)
-  ) {
-    throw new Error("states.afterRealMidiNote should show a real MIDI status or note");
-  }
-  const realMidiEvidence = requirePassedCheck("manualRealMidiInput").evidence ?? {};
-  if (
-    Number(realMidiEvidence.before?.lastMidiStatus) ===
-      Number(realMidiEvidence.after?.lastMidiStatus) &&
-    Number(realMidiEvidence.before?.lastMidiNote) === Number(realMidiEvidence.after?.lastMidiNote)
-  ) {
-    throw new Error("manualRealMidiInput evidence should show a changed MIDI status or note");
+  requireMidiState(report.states.duringRealMidiNote, "states.duringRealMidiNote");
+  requireMidiState(report.states.afterRealMidiNote, "states.afterRealMidiNote");
+  requireMidiNoteOn(report.states.duringRealMidiNote, "states.duringRealMidiNote");
+  requireMidiNoteOff(
+    report.states.afterRealMidiNote,
+    report.states.duringRealMidiNote.lastMidiNote,
+    "states.afterRealMidiNote"
+  );
+  const realMidiEvidence = requirePassedCheckEvidence("manualRealMidiInput");
+  requireMidiState(realMidiEvidence.before, "manualRealMidiInput.before");
+  requireMidiState(realMidiEvidence.noteOn, "manualRealMidiInput.noteOn");
+  requireMidiState(realMidiEvidence.noteOff, "manualRealMidiInput.noteOff");
+  requireMidiNoteOn(realMidiEvidence.noteOn, "manualRealMidiInput.noteOn");
+  requireMidiNoteOff(
+    realMidiEvidence.noteOff,
+    realMidiEvidence.noteOn.lastMidiNote,
+    "manualRealMidiInput.noteOff"
+  );
+  if (midiStatesEqual(realMidiEvidence.before, realMidiEvidence.noteOn)) {
+    throw new Error("manualRealMidiInput evidence should show a changed MIDI note-on event");
   }
 
   requireObject(report.states.afterMidiRecording, "states.afterMidiRecording");
@@ -653,6 +659,45 @@ function requireDownloadedProjectFileEvidence(evidence, expectedFileName, expect
     throw new Error(`${label}.sha256 should be a SHA-256 hex digest`);
   }
   requireEqual(evidence.projectMarker, true, `${label}.projectMarker`);
+}
+
+function requireMidiState(state, label) {
+  requireObject(state, label);
+  requireFiniteNumber(state.lastMidiStatus, `${label}.lastMidiStatus`);
+  requireFiniteNumber(state.lastMidiNote, `${label}.lastMidiNote`);
+  requireFiniteNumber(state.lastMidiVelocity, `${label}.lastMidiVelocity`);
+}
+
+function requireMidiNoteOn(state, label) {
+  if (
+    midiStatusKind(state) !== 0x90 ||
+    !(Number(state.lastMidiNote) >= 0) ||
+    !(Number(state.lastMidiVelocity) > 0)
+  ) {
+    throw new Error(`${label} should show a MIDI note-on with velocity`);
+  }
+}
+
+function requireMidiNoteOff(state, expectedNote, label) {
+  const statusKind = midiStatusKind(state);
+  const noteMatches = Number(state.lastMidiNote) === Number(expectedNote);
+  const isNoteOff =
+    statusKind === 0x80 || (statusKind === 0x90 && Number(state.lastMidiVelocity) === 0);
+  if (!noteMatches || !isNoteOff) {
+    throw new Error(`${label} should show a matching MIDI note-off`);
+  }
+}
+
+function midiStatesEqual(left, right) {
+  return (
+    Number(left.lastMidiStatus) === Number(right.lastMidiStatus) &&
+    Number(left.lastMidiNote) === Number(right.lastMidiNote) &&
+    Number(left.lastMidiVelocity) === Number(right.lastMidiVelocity)
+  );
+}
+
+function midiStatusKind(state) {
+  return Number(state.lastMidiStatus ?? 0) & 0xf0;
 }
 
 function manualVisualStateShowsResize(initial, inspectedLarge) {

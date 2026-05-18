@@ -1465,14 +1465,20 @@ async function verifyBrowserMidiFlow(send, sessionId) {
   await waitForProjectState(
     send,
     sessionId,
-    (state) => state.lastMidiStatus === 0x90 && state.lastMidiNote === 60,
+    (state) =>
+      state.lastMidiStatus === 0x90 &&
+      state.lastMidiNote === 60 &&
+      state.lastMidiVelocity === 100,
     "browser MIDI message did not reach Orbifold's shared MIDI handling path"
   );
   await sendBrowserMidiMessage(send, sessionId, [0x80, 60, 0]);
   await waitForProjectState(
     send,
     sessionId,
-    (state) => state.lastMidiStatus === 0x80 && state.lastMidiNote === 60,
+    (state) =>
+      state.lastMidiStatus === 0x80 &&
+      state.lastMidiNote === 60 &&
+      state.lastMidiVelocity === 0,
     "browser MIDI note-off did not reach Orbifold's shared MIDI handling path"
   );
 
@@ -1487,7 +1493,10 @@ async function verifyBrowserMidiFlow(send, sessionId) {
   await waitForProjectState(
     send,
     sessionId,
-    (state) => state.lastMidiStatus === 0x90 && state.lastMidiNote === 64,
+    (state) =>
+      state.lastMidiStatus === 0x90 &&
+      state.lastMidiNote === 64 &&
+      state.lastMidiVelocity === 96,
     "browser MIDI note-on did not update last MIDI state while recording"
   );
   await delay(150);
@@ -1495,7 +1504,10 @@ async function verifyBrowserMidiFlow(send, sessionId) {
   await waitForProjectState(
     send,
     sessionId,
-    (state) => state.lastMidiStatus === 0x80 && state.lastMidiNote === 64,
+    (state) =>
+      state.lastMidiStatus === 0x80 &&
+      state.lastMidiNote === 64 &&
+      state.lastMidiVelocity === 0,
     "browser MIDI note-off did not update last MIDI state while recording"
   );
   await dispatchBrowserAction(send, sessionId, "transport.record");
@@ -2702,6 +2714,7 @@ async function evaluateProjectState(send, sessionId) {
         midiInputConnection: document.body.dataset.orbifoldMidiInputConnection ?? "",
         lastMidiStatus: Number(document.body.dataset.orbifoldLastMidiStatus ?? 0),
         lastMidiNote: Number(document.body.dataset.orbifoldLastMidiNote ?? -1),
+        lastMidiVelocity: Number(document.body.dataset.orbifoldLastMidiVelocity ?? 0),
         audioOutputCount: Number(document.body.dataset.orbifoldAudioOutputCount ?? 0),
         connectedAudioOutput: document.body.dataset.orbifoldConnectedAudioOutput ?? "",
         audioOutputSelectionSupported: document.body.dataset.orbifoldAudioOutputSelectionSupported === "1",

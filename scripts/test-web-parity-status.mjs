@@ -122,8 +122,9 @@ function validManualReport() {
     name: "manualRealMidiInput",
     pass: true,
     evidence: {
-      before: { lastMidiStatus: 0, lastMidiNote: -1 },
-      after: { lastMidiStatus: 144, lastMidiNote: 60 },
+      before: { lastMidiStatus: 0, lastMidiNote: -1, lastMidiVelocity: 0 },
+      noteOn: { lastMidiStatus: 144, lastMidiNote: 60, lastMidiVelocity: 96 },
+      noteOff: { lastMidiStatus: 128, lastMidiNote: 60, lastMidiVelocity: 0 },
     },
   });
   checks.push({
@@ -287,9 +288,15 @@ function validManualReport() {
         connectedMidiInput: "Hardware MIDI",
         midiInputConnection: "open",
       },
-      afterRealMidiNote: {
+      duringRealMidiNote: {
         lastMidiStatus: 144,
         lastMidiNote: 60,
+        lastMidiVelocity: 96,
+      },
+      afterRealMidiNote: {
+        lastMidiStatus: 128,
+        lastMidiNote: 60,
+        lastMidiVelocity: 0,
       },
       afterMidiRecording: {
         noteCount: 3,

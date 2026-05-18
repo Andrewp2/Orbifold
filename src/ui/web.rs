@@ -439,6 +439,10 @@ impl WebOrbifoldApp {
                 .as_ref()
                 .map(|event| event.midi_note as f64)
                 .unwrap_or(-1.0),
+            midi_last
+                .as_ref()
+                .map(|event| event.velocity as f64)
+                .unwrap_or(0.0),
             self.app.audio_outputs.len() as f64,
             &self.app.connected_audio_output,
             self.app.audio_stream.is_some(),
@@ -2486,6 +2490,7 @@ export function publish_runtime_state_js(
   connectedMidiInput,
   lastMidiStatus,
   lastMidiNote,
+  lastMidiVelocity,
   audioOutputCount,
   connectedAudioOutput,
   audioStreamConnected,
@@ -2508,6 +2513,7 @@ export function publish_runtime_state_js(
   document.body.dataset.orbifoldConnectedMidiInput = String(connectedMidiInput || "");
   document.body.dataset.orbifoldLastMidiStatus = String(lastMidiStatus || 0);
   document.body.dataset.orbifoldLastMidiNote = String(lastMidiNote ?? -1);
+  document.body.dataset.orbifoldLastMidiVelocity = String(lastMidiVelocity || 0);
   document.body.dataset.orbifoldAudioOutputCount = String(audioOutputCount || 0);
   document.body.dataset.orbifoldConnectedAudioOutput = String(connectedAudioOutput || "");
   document.body.dataset.orbifoldAudioStreamConnected = audioStreamConnected ? "1" : "0";
@@ -3577,6 +3583,7 @@ extern "C" {
         connected_midi_input: &str,
         last_midi_status: f64,
         last_midi_note: f64,
+        last_midi_velocity: f64,
         audio_output_count: f64,
         connected_audio_output: &str,
         audio_stream_connected: bool,

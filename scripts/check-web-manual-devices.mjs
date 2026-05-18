@@ -267,24 +267,27 @@ async function runManualDeviceCheck() {
 
   const beforeMidiNote = await evaluateProjectState();
   await promptEnter(
-    "Play and release a note on the real MIDI device. Wait until Orbifold's MIDI status changes, then press Enter."
+    "Press and hold a note on the real MIDI device, wait until Orbifold reports it, then press Enter while the note is still held."
+  );
+  report.states.duringRealMidiNote = await evaluateProjectState();
+  await promptEnter(
+    "Release the same MIDI note, wait until Orbifold reports the release, then press Enter."
   );
   report.states.afterRealMidiNote = await evaluateProjectState();
-  const midiStatusChanged =
-    report.states.afterRealMidiNote.lastMidiStatus !== beforeMidiNote.lastMidiStatus ||
-    report.states.afterRealMidiNote.lastMidiNote !== beforeMidiNote.lastMidiNote;
+  const midiStatusChanged = !midiStateEquals(beforeMidiNote, report.states.duringRealMidiNote);
+  const midiNoteOn = midiStateIsNoteOn(report.states.duringRealMidiNote);
+  const midiNoteOff =
+    midiNoteOn &&
+    midiStateIsNoteOff(
+      report.states.afterRealMidiNote,
+      report.states.duringRealMidiNote.lastMidiNote
+    );
   const userSawMidi = await confirm("Did Orbifold visibly report the real MIDI note?");
   report.userConfirmations.realMidiNoteVisible = userSawMidi;
-  addCheck("manualRealMidiInput", userSawMidi && midiStatusChanged, {
-    before: {
-      lastMidiStatus: beforeMidiNote.lastMidiStatus,
-      lastMidiNote: beforeMidiNote.lastMidiNote,
-    },
-    after: {
-      lastMidiStatus: report.states.afterRealMidiNote.lastMidiStatus,
-      lastMidiNote: report.states.afterRealMidiNote.lastMidiNote,
-      lastStatus: report.states.afterRealMidiNote.lastStatus,
-    },
+  addCheck("manualRealMidiInput", userSawMidi && midiStatusChanged && midiNoteOn && midiNoteOff, {
+    before: midiEvidence(beforeMidiNote),
+    noteOn: midiEvidence(report.states.duringRealMidiNote),
+    noteOff: midiEvidence(report.states.afterRealMidiNote),
   });
 
   const beforeRecording = await evaluateProjectState();
@@ -752,6 +755,7 @@ async function evaluateProjectState() {
         midiInputConnection: document.body.dataset.orbifoldMidiInputConnection ?? "",
         lastMidiStatus: Number(document.body.dataset.orbifoldLastMidiStatus ?? 0),
         lastMidiNote: Number(document.body.dataset.orbifoldLastMidiNote ?? -1),
+        lastMidiVelocity: Number(document.body.dataset.orbifoldLastMidiVelocity ?? 0),
         audioOutputCount: Number(document.body.dataset.orbifoldAudioOutputCount ?? 0),
         connectedAudioOutput: document.body.dataset.orbifoldConnectedAudioOutput ?? "",
         browserAudioOutputNames: document.body.dataset.orbifoldBrowserAudioOutputNames ?? "",
@@ -979,6 +983,43 @@ function manualVisualStateShowsResize(initial, inspectedLarge) {
     Math.abs(Number(initial.canvasClientHeight) - Number(inspectedLarge.canvasClientHeight)) >= 16 ||
     Math.abs(Number(initial.devicePixelRatio) - Number(inspectedLarge.devicePixelRatio)) >= 0.1 ||
     Math.abs(Number(initial.uiScale) - Number(inspectedLarge.uiScale)) >= 0.01
+  );
+}
+
+function midiEvidence(state) {
+  return {
+    lastMidiStatus: Number(state.lastMidiStatus ?? 0),
+    lastMidiNote: Number(state.lastMidiNote ?? -1),
+    lastMidiVelocity: Number(state.lastMidiVelocity ?? 0),
+    lastStatus: state.lastStatus ?? "",
+  };
+}
+
+function midiStateEquals(left, right) {
+  return (
+    Number(left.lastMidiStatus) === Number(right.lastMidiStatus) &&
+    Number(left.lastMidiNote) === Number(right.lastMidiNote) &&
+    Number(left.lastMidiVelocity) === Number(right.lastMidiVelocity)
+  );
+}
+
+function midiStatusKind(state) {
+  return Number(state.lastMidiStatus ?? 0) & 0xf0;
+}
+
+function midiStateIsNoteOn(state) {
+  return (
+    midiStatusKind(state) === 0x90 &&
+    Number(state.lastMidiNote) >= 0 &&
+    Number(state.lastMidiVelocity) > 0
+  );
+}
+
+function midiStateIsNoteOff(state, expectedNote) {
+  const statusKind = midiStatusKind(state);
+  return (
+    Number(state.lastMidiNote) === Number(expectedNote) &&
+    (statusKind === 0x80 || (statusKind === 0x90 && Number(state.lastMidiVelocity) === 0))
   );
 }
 
