@@ -52,6 +52,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-manual-report.mjs reports/
 ```
 
 The headless smoke currently covers:
@@ -145,6 +146,10 @@ these manual checks before treating web as parity-complete:
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence.
+- Run `./scripts/check-web-manual-report.mjs reports/` and keep the validator
+  output with the manual report. A report only counts when every required check,
+  user confirmation, real browser click, audible Web Audio sample, real MIDI
+  input, and MIDI recording evidence field passes validation.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
@@ -183,6 +188,8 @@ themselves:
   confirming audible output in a real browser session.
 - `scripts/check-web-manual-devices.mjs` exists, without a passing report from a
   real browser/audio/MIDI session.
+- A manual-device report exists, without a passing
+  `./scripts/check-web-manual-report.mjs` validation run.
 - The Pages workflow file exists, without a successful deployed Pages run.
 - `scripts/check-web-live.mjs` passes without a manual browser runtime check.
 - `scripts/check-web-layout.mjs` passes without visual inspection; it checks

@@ -37,7 +37,9 @@ cargo run -- --screenshot-size=3840x2160
 Inspect the generated screenshots after each UI-affecting change. Passing tests
 or successfully writing an image does not prove the UI is visually usable.
 For web parity claims, also complete the manual browser, deployed Pages, Web
-MIDI, and audible Web Audio checks in `docs/web_parity_audit.md`.
+MIDI, and audible Web Audio checks in `docs/web_parity_audit.md`, then validate
+the generated manual-device report with
+`./scripts/check-web-manual-report.mjs reports/`.
 
 ## Manual Smoke Test
 

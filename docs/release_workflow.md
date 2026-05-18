@@ -49,7 +49,7 @@ Manual metadata checks:
   checks it with `./scripts/check-web-dist.mjs`, and uploads it as a Pages
   artifact.
 - `docs/web_parity_audit.md` separates automated web evidence from manual
-  browser, deployed Pages, Web MIDI, and Web Audio validation.
+  browser, deployed Pages, Web MIDI, Web Audio, and manual report validation.
 
 ## 3. Run Automated Gates
 
@@ -82,6 +82,10 @@ routing depend on the tester's browser and platform.
 Run `./scripts/check-web-smoke.mjs` against the served `dist/` output for the
 automated web parity gate, then use `docs/web_parity_audit.md` for the manual
 web evidence that CI cannot provide.
+When the manual browser/device pass writes `reports/web-manual-devices-*.json`,
+run `./scripts/check-web-manual-report.mjs reports/` so the release evidence is
+checked for passed Web Audio, Web MIDI, real-click, and user-confirmation
+fields instead of only preserving an unchecked JSON file.
 After deployment, run `./scripts/check-web-live.mjs` against the Pages URL to
 verify the published site is serving the expected wasm loader, wasm binary,
 icons, relative paths, and runtime hooks. The Pages workflow also runs

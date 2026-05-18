@@ -284,6 +284,56 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
 }
 
 #[test]
+fn web_manual_report_validator_requires_real_device_evidence() {
+    let script = include_str!("../scripts/check-web-manual-report.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+    let release_checklist = include_str!("../docs/release_checklist.md");
+    let release_workflow = include_str!("../docs/release_workflow.md");
+    let limitations = include_str!("../docs/known_limitations.md");
+
+    for required in [
+        "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>",
+        "orbifold.web_manual_device_parity.v1",
+        "manualDeviceVerifierCompleted",
+        "manualAudibleWebAudio",
+        "manualRealMidiInput",
+        "manualRealMidiRecording",
+        "audioResumeResolved",
+        "audioNonzero",
+        "midiInputCount",
+        "connectedMidiInput",
+        "beforeNoteCount",
+        "afterNoteCount",
+        "manualRealMidiInput evidence should show a changed MIDI status or note",
+        "requiredClickCounts",
+        "audioTestA4",
+        "midiRefresh",
+        "manual web device report ok",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-manual-report.mjs should validate manual report evidence: {required}"
+        );
+    }
+
+    for docs in [
+        readme,
+        audit,
+        checklist,
+        release_checklist,
+        release_workflow,
+        limitations,
+    ] {
+        assert!(
+            docs.contains("./scripts/check-web-manual-report.mjs reports/"),
+            "manual web device report validation workflow should be documented"
+        );
+    }
+}
+
+#[test]
 fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-live.mjs");
 

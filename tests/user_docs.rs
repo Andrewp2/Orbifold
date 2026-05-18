@@ -249,6 +249,7 @@ fn web_parity_audit_covers_automated_and_manual_evidence() {
         "./scripts/check-web-smoke.mjs http://127.0.0.1:4173/",
         "./scripts/check-web-live.mjs https://<user>.github.io/<repo>/",
         "./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/",
+        "./scripts/check-web-manual-report.mjs reports/",
         "GitHub Pages",
         "Web MIDI",
         "Web Audio",
