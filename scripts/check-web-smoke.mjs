@@ -216,6 +216,7 @@ async function runSmoke(browserWsUrl) {
     await verifyBrowserMidiFailureFlows(send);
     await verifyBrowserAudioFlow(send, sessionId);
     await verifyBrowserAudioFallbackFlow(send);
+    await verifyBrowserAudioUnavailableFlow(send);
     await verifyBrowserPersistenceAfterReload(send, sessionId);
     await delay(settleMs);
     return events;
@@ -1585,6 +1586,77 @@ async function verifyBrowserAudioFallbackFlow(send) {
         state.audioNonzero &&
         state.audioPeak > 0.0001,
       "browser audio fallback test tone did not produce nonzero Web Audio samples"
+    );
+  } finally {
+    await send("Target.closeTarget", { targetId }).catch(() => {});
+  }
+}
+
+async function verifyBrowserAudioUnavailableFlow(send) {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Runtime.enable", {}, sessionId);
+    await send("Log.enable", {}, sessionId);
+    await send("Network.enable", {}, sessionId);
+    await send("Page.enable", {}, sessionId);
+    await send(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: `(() => {
+          Object.defineProperty(window, "AudioContext", {
+            configurable: true,
+            value: undefined,
+          });
+          Object.defineProperty(window, "webkitAudioContext", {
+            configurable: true,
+            value: undefined,
+          });
+        })();`,
+      },
+      sessionId
+    );
+    await send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 1200,
+        height: 760,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId
+    );
+    await send("Page.navigate", { url: urlForSmokeVariant("audio-unavailable") }, sessionId);
+    await waitForOrbifoldReady(send, sessionId);
+
+    await dispatchBrowserAction(send, sessionId, "audio.refresh");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.audioOutputCount === 0 &&
+        !state.audioStreamConnected &&
+        state.browserAudioOutputNames === "" &&
+        state.browserAudioDiagnostic.includes("Web Audio: unavailable") &&
+        state.lastStatus.includes(
+          "Audio refresh error: Web Audio is not available in this browser"
+        ),
+      "browser audio refresh did not surface a visible unavailable error"
+    );
+
+    await dispatchBrowserAction(send, sessionId, "audio.connect");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.audioOutputCount === 0 &&
+        !state.audioStreamConnected &&
+        state.browserAudioDiagnostic.includes("Web Audio: unavailable") &&
+        state.lastStatus.includes("No audio output selected"),
+      "browser audio connect did not stay disconnected when Web Audio is unavailable"
     );
   } finally {
     await send("Target.closeTarget", { targetId }).catch(() => {});
