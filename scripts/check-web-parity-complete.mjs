@@ -19,6 +19,13 @@ const requiredSteps = [
   "deployedVisualCapture",
 ];
 
+const requiredVisualCaptures = [
+  { label: "compact-1200x760", width: 1200, height: 760, deviceScaleFactor: 1 },
+  { label: "desktop-1600x1000", width: 1600, height: 1000, deviceScaleFactor: 1 },
+  { label: "hidpi-1920x1080-dpr2", width: 1920, height: 1080, deviceScaleFactor: 2 },
+  { label: "wide-3840x2160", width: 3840, height: 2160, deviceScaleFactor: 1 },
+];
+
 if (isCliEntrypoint()) {
   const target = process.argv[2] ?? "reports";
 
@@ -47,6 +54,7 @@ export function validateParityCompletionReport(report, options = {}) {
   requireArray(report.steps, "steps");
   requireArtifactFingerprint(report.liveArtifact, "liveArtifact");
   requireTruthy(report.manualReportPath, "manualReportPath");
+  requireTruthy(report.visualOut, "visualOut");
 
   const stepsByName = new Map(report.steps.map((step) => [step.name, step]));
   for (const name of requiredSteps) {
@@ -65,16 +73,18 @@ export function validateParityCompletionReport(report, options = {}) {
     throw new Error("manualReportArtifact should confirm the manual artifact matches live");
   }
 
-  if (options.manualReport) {
-    validateManualDeviceReport(options.manualReport);
-    const differences = compareWebArtifactFingerprints(
-      report.liveArtifact,
-      options.manualReport.artifact
-    );
-    if (differences.length > 0) {
-      throw new Error(`manual report artifact should match live artifact: ${differences[0]}`);
-    }
+  requireTruthy(options.manualReport, "manualReport");
+  validateManualDeviceReport(options.manualReport);
+  const differences = compareWebArtifactFingerprints(
+    report.liveArtifact,
+    options.manualReport.artifact
+  );
+  if (differences.length > 0) {
+    throw new Error(`manual report artifact should match live artifact: ${differences[0]}`);
   }
+
+  requireTruthy(options.visualManifest, "visualManifest");
+  validateVisualCaptureManifest(options.visualManifest, report);
 }
 
 export async function validateParityCompletionReportFile(reportPath) {
@@ -82,7 +92,40 @@ export async function validateParityCompletionReportFile(reportPath) {
   const reportDir = path.dirname(reportPath);
   const manualReportPath = resolveManualReportPath(report.manualReportPath, reportDir);
   const manualReport = JSON.parse(await readFile(manualReportPath, "utf8"));
-  validateParityCompletionReport(report, { reportDir, manualReport });
+  const visualManifestPath = await resolveVisualManifestPath(report, reportDir);
+  const visualManifest = JSON.parse(await readFile(visualManifestPath, "utf8"));
+  validateParityCompletionReport(report, { reportDir, manualReport, visualManifest });
+  await requireExistingVisualCaptureFiles(visualManifest, visualManifestPath);
+}
+
+export function validateVisualCaptureManifest(manifest, report) {
+  requireObject(manifest, "visualManifest");
+  requireTruthy(manifest.target, "visualManifest.target");
+  requireEqual(
+    normalizeCompletionUrl(manifest.target),
+    normalizeCompletionUrl(report.targetUrl),
+    "visualManifest.target"
+  );
+  requireIsoDate(manifest.capturedAt, "visualManifest.capturedAt");
+  requireArray(manifest.captures, "visualManifest.captures");
+  if (Array.isArray(manifest.failures) && manifest.failures.length > 0) {
+    throw new Error(`visualManifest.failures should be empty: ${manifest.failures[0]}`);
+  }
+
+  const capturesByLabel = new Map(manifest.captures.map((capture) => [capture.label, capture]));
+  for (const expected of requiredVisualCaptures) {
+    const capture = capturesByLabel.get(expected.label);
+    requireObject(capture, `visualManifest.captures.${expected.label}`);
+    requireEqual(capture.width, expected.width, `visualManifest.captures.${expected.label}.width`);
+    requireEqual(capture.height, expected.height, `visualManifest.captures.${expected.label}.height`);
+    requireEqual(
+      capture.deviceScaleFactor,
+      expected.deviceScaleFactor,
+      `visualManifest.captures.${expected.label}.deviceScaleFactor`
+    );
+    requireReadyVisualState(capture.state, expected);
+    requireVisualEvidence(capture, expected.label);
+  }
 }
 
 export async function resolveParityCompletionReportPath(targetPath) {
@@ -108,14 +151,150 @@ export async function resolveParityCompletionReportPath(targetPath) {
   return candidates[candidates.length - 1];
 }
 
+export async function resolveVisualManifestPath(report, reportDir = ".") {
+  const step = Array.isArray(report.steps)
+    ? report.steps.find((candidate) => candidate.name === "deployedVisualCapture")
+    : null;
+  const stdoutTail = String(step?.stdoutTail ?? "");
+  const manifestMatch = stdoutTail.match(/(?:^|\n)- manifest: ([^\n]+manifest\.json)(?:\n|$)/);
+  if (manifestMatch) {
+    return resolveEvidencePath(manifestMatch[1].trim(), reportDir);
+  }
+
+  requireTruthy(report.visualOut, "visualOut");
+  const visualOut = resolveEvidencePath(report.visualOut, reportDir);
+  const visualOutStat = await stat(visualOut);
+  if (visualOutStat.isFile()) {
+    return visualOut;
+  }
+  if (!visualOutStat.isDirectory()) {
+    throw new Error(`${visualOut} is neither a visual manifest nor a directory`);
+  }
+
+  const directManifest = path.join(visualOut, "manifest.json");
+  try {
+    const directManifestStat = await stat(directManifest);
+    if (directManifestStat.isFile()) {
+      return directManifest;
+    }
+  } catch (_error) {
+    // Fall through to timestamped run directories.
+  }
+
+  const entries = await readdir(visualOut, { withFileTypes: true });
+  const candidates = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(visualOut, entry.name, "manifest.json"))
+    .sort();
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    try {
+      const candidateStat = await stat(candidates[index]);
+      if (candidateStat.isFile()) {
+        return candidates[index];
+      }
+    } catch (_error) {
+      // Keep looking for an existing manifest.
+    }
+  }
+
+  throw new Error(`${visualOut} does not contain a visual capture manifest`);
+}
+
+async function requireExistingVisualCaptureFiles(manifest, manifestPath) {
+  const manifestDir = path.dirname(manifestPath);
+  for (const capture of manifest.captures ?? []) {
+    const evidencePath = capture.screenshot ?? capture.snapshot;
+    requireTruthy(evidencePath, `visualManifest.captures.${capture.label}.evidencePath`);
+    const resolved = resolveEvidencePath(evidencePath, manifestDir);
+    const evidenceStat = await stat(resolved);
+    if (!evidenceStat.isFile() || evidenceStat.size <= 0) {
+      throw new Error(`visual capture evidence should be a non-empty file: ${resolved}`);
+    }
+  }
+}
+
 function resolveManualReportPath(manualReportPath, reportDir) {
-  if (path.isAbsolute(manualReportPath)) {
-    return manualReportPath;
+  return resolveEvidencePath(manualReportPath, reportDir);
+}
+
+function resolveEvidencePath(value, relativeDir) {
+  if (path.isAbsolute(value)) {
+    return value;
   }
-  if (manualReportPath.includes(path.sep)) {
-    return path.resolve(manualReportPath);
+  if (value.includes(path.sep)) {
+    return path.resolve(value);
   }
-  return path.resolve(reportDir, manualReportPath);
+  return path.resolve(relativeDir, value);
+}
+
+function requireReadyVisualState(state, expected) {
+  requireObject(state, `visualManifest.captures.${expected.label}.state`);
+  const dpr = expected.deviceScaleFactor;
+  requireStringIncludes(state.className, "runtime-ready", `${expected.label}.state.className`);
+  requireAtLeast(Number(state.frameCount), 2, `${expected.label}.state.frameCount`);
+  requireAtLeast(
+    Number(state.canvasClientWidth),
+    expected.width - 2,
+    `${expected.label}.state.canvasClientWidth`
+  );
+  requireAtLeast(
+    Number(state.canvasClientHeight),
+    expected.height - 2,
+    `${expected.label}.state.canvasClientHeight`
+  );
+  requireAtLeast(
+    Number(state.canvasWidth),
+    expected.width * dpr - 2,
+    `${expected.label}.state.canvasWidth`
+  );
+  requireAtLeast(
+    Number(state.canvasHeight),
+    expected.height * dpr - 2,
+    `${expected.label}.state.canvasHeight`
+  );
+  requireEqual(
+    String(state.visualSnapshotReady),
+    "1",
+    `${expected.label}.state.visualSnapshotReady`
+  );
+  requireAtLeast(
+    Number(state.visualSnapshotBytes),
+    1000,
+    `${expected.label}.state.visualSnapshotBytes`
+  );
+}
+
+function requireVisualEvidence(capture, label) {
+  if (capture.screenshot) {
+    requireObject(capture.imageStats, `${label}.imageStats`);
+    requireAtLeast(
+      Number(capture.imageStats.nonTransparentPixels),
+      1,
+      `${label}.imageStats.nonTransparentPixels`
+    );
+    requireAtLeast(Number(capture.imageStats.rgbRange), 1, `${label}.imageStats.rgbRange`);
+    return;
+  }
+
+  requireEqual(capture.mode, "paint-snapshot-svg", `${label}.mode`);
+  requireTruthy(capture.snapshot, `${label}.snapshot`);
+  requireObject(capture.snapshotStats, `${label}.snapshotStats`);
+  requireAtLeast(Number(capture.snapshotStats.bytes), 1000, `${label}.snapshotStats.bytes`);
+  requireAtLeast(Number(capture.snapshotStats.itemCount), 10, `${label}.snapshotStats.itemCount`);
+  if (Number(capture.snapshotStats.unsupportedCount) >= Number(capture.snapshotStats.itemCount)) {
+    throw new Error(`${label}.snapshotStats unsupported items should not cover the whole capture`);
+  }
+}
+
+function normalizeCompletionUrl(value) {
+  const url = new URL(value);
+  url.hash = "";
+  url.search = "";
+  if (!url.pathname.endsWith("/")) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url.href;
 }
 
 function requireArray(value, label) {
@@ -130,6 +309,12 @@ function requireObject(value, label) {
   }
 }
 
+function requireStringIncludes(value, expected, label) {
+  if (!String(value ?? "").includes(expected)) {
+    throw new Error(`${label} should include ${JSON.stringify(expected)}`);
+  }
+}
+
 function requireTruthy(value, label) {
   if (!value) {
     throw new Error(`${label} should be present`);
@@ -139,6 +324,12 @@ function requireTruthy(value, label) {
 function requireEqual(actual, expected, label) {
   if (actual !== expected) {
     throw new Error(`${label} expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
+}
+
+function requireAtLeast(actual, expected, label) {
+  if (!Number.isFinite(actual) || actual < expected) {
+    throw new Error(`${label} expected at least ${expected}, got ${JSON.stringify(actual)}`);
   }
 }
 

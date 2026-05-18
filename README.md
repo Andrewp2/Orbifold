@@ -123,8 +123,8 @@ manual report, rejects stale reports whose artifact fingerprint no longer
 matches the live Pages site, and writes a final gate report under `reports/`.
 Use `./scripts/check-web-parity-complete.mjs reports/` as the final saved
 evidence check; it requires a passing gate report, a validated manual-device
-report, non-skipped visual capture, and matching manual/live artifact
-fingerprints.
+report, a saved visual capture manifest with all required viewport artifacts,
+non-skipped visual capture, and matching manual/live artifact fingerprints.
 
 ## Music Workflow
 

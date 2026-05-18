@@ -178,8 +178,9 @@ these manual checks before treating web as parity-complete:
 - Run `./scripts/check-web-parity-complete.mjs reports/` against the saved
   reports. This final offline evidence check requires a passing gate report,
   validates the linked manual-device report again, rejects skipped visual
-  capture, and confirms the live artifact recorded by the gate still matches
-  the manual report artifact.
+  capture, validates the saved visual capture manifest and viewport artifact
+  files, and confirms the live artifact recorded by the gate still matches the
+  manual report artifact.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real

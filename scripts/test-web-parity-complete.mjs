@@ -12,8 +12,15 @@ import {
 
 const manualReport = validManualReport();
 const gateReport = validGateReport(manualReport);
+const visualManifest = validVisualManifest(manualReport.targetUrl);
 
-assert.doesNotThrow(() => validateParityCompletionReport(gateReport, { manualReport }));
+assert.doesNotThrow(() =>
+  validateParityCompletionReport(gateReport, { manualReport, visualManifest })
+);
+
+assert.throws(() => validateParityCompletionReport(gateReport, { manualReport }), {
+  message: /visualManifest should be present/,
+});
 
 assertRejects(
   withChange(gateReport, (draft) => {
@@ -57,17 +64,55 @@ assertRejects(
   "manual report artifact should match live artifact"
 );
 
+assertRejects(gateReport, "visualManifest.failures should be empty", {
+  visualManifest: withChange(visualManifest, (draft) => {
+    draft.failures = ["console error: boom"];
+  }),
+});
+
+assertRejects(gateReport, "visualManifest.captures.wide-3840x2160 should be an object", {
+  visualManifest: withChange(visualManifest, (draft) => {
+    draft.captures = draft.captures.filter((capture) => capture.label !== "wide-3840x2160");
+  }),
+});
+
+assertRejects(gateReport, "compact-1200x760.state.canvasWidth expected at least", {
+  visualManifest: withChange(visualManifest, (draft) => {
+    draft.captures[0].state.canvasWidth = 400;
+  }),
+});
+
+assertRejects(gateReport, "compact-1200x760.snapshotStats.itemCount expected at least 10", {
+  visualManifest: withChange(visualManifest, (draft) => {
+    draft.captures[0].snapshotStats.itemCount = 1;
+  }),
+});
+
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "orbifold-web-parity-complete-"));
 try {
   const reportsDir = path.join(tempDir, "reports");
+  const visualRunDir = path.join(tempDir, "screenshots", "final", "2026-05-18T120500Z");
   await mkdir(reportsDir, { recursive: true });
+  await mkdir(visualRunDir, { recursive: true });
   const manualPath = path.join(reportsDir, "web-manual-devices-2026-05-18T120000Z.json");
   const gatePath = path.join(reportsDir, "web-parity-gate-2026-05-18T120500Z.json");
-  await writeFile(manualPath, `${JSON.stringify(manualReport, null, 2)}\n`);
-  await writeFile(
-    gatePath,
-    `${JSON.stringify({ ...gateReport, manualReportPath: manualPath }, null, 2)}\n`
+  const visualManifestPath = path.join(visualRunDir, "manifest.json");
+  const visualManifestWithFiles = validVisualManifest(manualReport.targetUrl, (label) =>
+    path.join(visualRunDir, `${label}.svg`)
   );
+  for (const capture of visualManifestWithFiles.captures) {
+    await writeFile(capture.snapshot, "<svg><text>Orbifold visual evidence</text></svg>\n");
+  }
+  await writeFile(visualManifestPath, `${JSON.stringify(visualManifestWithFiles, null, 2)}\n`);
+
+  const gateReportWithFiles = structuredClone(gateReport);
+  gateReportWithFiles.manualReportPath = manualPath;
+  gateReportWithFiles.visualOut = path.dirname(visualRunDir);
+  gateReportWithFiles.steps.find((step) => step.name === "deployedVisualCapture").stdoutTail =
+    `Orbifold web visual captures wrote ${visualRunDir}\n- manifest: ${visualManifestPath}\n`;
+
+  await writeFile(manualPath, `${JSON.stringify(manualReport, null, 2)}\n`);
+  await writeFile(gatePath, `${JSON.stringify(gateReportWithFiles, null, 2)}\n`);
 
   assert.equal(await resolveParityCompletionReportPath(reportsDir), gatePath);
   await validateParityCompletionReportFile(gatePath);
@@ -82,8 +127,9 @@ try {
 
 console.log("web parity completion behavior ok");
 
-function assertRejects(candidate, message) {
-  assert.throws(() => validateParityCompletionReport(candidate, { manualReport }), {
+function assertRejects(candidate, message, optionOverrides = {}) {
+  const options = { manualReport, visualManifest, ...optionOverrides };
+  assert.throws(() => validateParityCompletionReport(candidate, options), {
     message: new RegExp(escapeRegExp(message)),
   });
 }
@@ -117,7 +163,11 @@ function validGateReport(sourceManualReport) {
       step("deployedArtifact", generatedAt, "live web artifact ok"),
       step("deployedLayout", generatedAt, "Orbifold web layout checks passed"),
       step("deployedSmoke", generatedAt, "Orbifold web smoke passed"),
-      step("deployedVisualCapture", generatedAt, "Orbifold web visual captures wrote"),
+      step(
+        "deployedVisualCapture",
+        generatedAt,
+        "Orbifold web visual captures wrote screenshots/final/2026-05-18T120500Z\n- manifest: screenshots/final/2026-05-18T120500Z/manifest.json"
+      ),
     ],
   };
 }
@@ -245,6 +295,59 @@ function artifactFingerprint(rootUrl, generatedAt) {
         },
       ])
     ),
+  };
+}
+
+function validVisualManifest(targetUrl, snapshotPathForLabel = (label) => `${label}.svg`) {
+  const capturedAt = "2026-05-18T12:05:00.000Z";
+  return {
+    target: targetUrl,
+    capturedAt,
+    chrome: "/usr/bin/google-chrome",
+    captures: [
+      visualCapture("compact-1200x760", 1200, 760, 1, snapshotPathForLabel),
+      visualCapture("desktop-1600x1000", 1600, 1000, 1, snapshotPathForLabel),
+      visualCapture("hidpi-1920x1080-dpr2", 1920, 1080, 2, snapshotPathForLabel),
+      visualCapture("wide-3840x2160", 3840, 2160, 1, snapshotPathForLabel),
+    ],
+    events: [],
+    failures: [],
+  };
+}
+
+function visualCapture(label, width, height, deviceScaleFactor, snapshotPathForLabel) {
+  return {
+    label,
+    width,
+    height,
+    deviceScaleFactor,
+    mode: "paint-snapshot-svg",
+    snapshot: snapshotPathForLabel(label),
+    screenshotFallback: "screenshot is blank/transparent",
+    imageStats: {
+      width,
+      height,
+      colorType: 6,
+      bitDepth: 8,
+      nonTransparentPixels: 0,
+      alphaRange: 0,
+      rgbRange: 0,
+    },
+    screenshotAttempts: [],
+    snapshotStats: { bytes: 4096, itemCount: 128, unsupportedCount: 2 },
+    state: {
+      title: "Orbifold",
+      className: "runtime-ready",
+      frameCount: 8,
+      viewportWidth: width,
+      viewportHeight: height,
+      canvasClientWidth: width,
+      canvasClientHeight: height,
+      canvasWidth: width * deviceScaleFactor,
+      canvasHeight: height * deviceScaleFactor,
+      visualSnapshotReady: "1",
+      visualSnapshotBytes: 4096,
+    },
   };
 }
 

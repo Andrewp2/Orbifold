@@ -42,7 +42,8 @@ the generated manual-device report with
 `./scripts/check-web-manual-report.mjs reports/` and run the final gate with
 `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`.
 Then run `./scripts/check-web-parity-complete.mjs reports/` over the saved
-reports before making a parity claim.
+reports before making a parity claim. This also validates the saved visual
+manifest and viewport artifact files.
 The final gate compares the manual report's deployed artifact fingerprint with
 the live Pages site, so rerun the manual device pass after deploying a changed
 web artifact.

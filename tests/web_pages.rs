@@ -570,6 +570,8 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         "resolveParityCompletionReportPath",
         "validateParityCompletionReport",
         "validateParityCompletionReportFile",
+        "validateVisualCaptureManifest",
+        "resolveVisualManifestPath",
         "validateManualDeviceReport",
         "requireArtifactFingerprint",
         "compareWebArtifactFingerprints",
@@ -580,6 +582,8 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         "deployedLayout",
         "deployedSmoke",
         "deployedVisualCapture",
+        "visualManifest.captures",
+        "visual capture evidence should be a non-empty file",
         "manual report artifact matches live",
         "web parity completion evidence ok",
     ] {
@@ -590,13 +594,18 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
     }
 
     for required in [
-        "validateParityCompletionReport(gateReport, { manualReport })",
+        "validateParityCompletionReport(gateReport, { manualReport, visualManifest })",
+        "visualManifest should be present",
         "passed expected true, got false",
         "skippedVisualCapture expected false, got true",
         "steps.deployedSmoke should be an object",
         "steps.deployedVisualCapture.command should not be skipped",
         "manualReportArtifact should confirm the manual artifact matches live",
         "manual report artifact should match live artifact",
+        "visualManifest.failures should be empty",
+        "visualManifest.captures.wide-3840x2160 should be an object",
+        "compact-1200x760.state.canvasWidth expected at least",
+        "compact-1200x760.snapshotStats.itemCount expected at least 10",
         "validateParityCompletionReportFile(gatePath)",
         "web parity completion behavior ok",
     ] {
