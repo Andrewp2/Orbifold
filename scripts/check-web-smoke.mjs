@@ -1669,6 +1669,7 @@ async function verifyKeyboardShortcut(send, sessionId) {
     },
     "browser keyboard shortcut did not persist a second clip note"
   );
+  await verifyKeyboardNoteEditShortcuts(send, sessionId);
 
   await pressKey(send, sessionId, {
     key: "?",
@@ -1708,6 +1709,98 @@ async function verifyKeyboardShortcut(send, sessionId) {
     sessionId,
     (state) => state.lastAction === "transport.play_stop" && !state.transportPlaying,
     "browser keyboard shortcut did not route Space to transport stop"
+  );
+}
+
+async function verifyKeyboardNoteEditShortcuts(send, sessionId) {
+  const before = await evaluateProjectState(send, sessionId);
+  const editedNote = latestProjectNote(before.project);
+  if (!editedNote) {
+    throw new Error(`browser keyboard note-edit precondition found no notes: ${before.project}`);
+  }
+
+  await pressKey(send, sessionId, {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+  });
+  const nudged = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = projectNoteById(state.project, editedNote.id);
+      return (
+        state.lastAction === "clip.nudge_right" &&
+        note &&
+        note.startBeat > editedNote.startBeat
+      );
+    },
+    "browser keyboard ArrowRight did not nudge the selected note"
+  );
+
+  await pressKey(send, sessionId, {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+    modifiers: 8,
+  });
+  const lengthened = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = projectNoteById(state.project, editedNote.id);
+      const nudgedNote = projectNoteById(nudged.project, editedNote.id);
+      return (
+        state.lastAction === "clip.longer" &&
+        note &&
+        nudgedNote &&
+        note.durationBeat > nudgedNote.durationBeat
+      );
+    },
+    "browser keyboard Shift+ArrowRight did not lengthen the selected note"
+  );
+
+  await pressKey(send, sessionId, {
+    key: "ArrowUp",
+    code: "ArrowUp",
+    windowsVirtualKeyCode: 38,
+  });
+  const transposed = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = projectNoteById(state.project, editedNote.id);
+      const lengthenedNote = projectNoteById(lengthened.project, editedNote.id);
+      return (
+        state.lastAction === "clip.pitch_up" &&
+        note &&
+        lengthenedNote &&
+        note.musicalNote > lengthenedNote.musicalNote
+      );
+    },
+    "browser keyboard ArrowUp did not transpose the selected note"
+  );
+
+  await pressKey(send, sessionId, {
+    key: "ArrowUp",
+    code: "ArrowUp",
+    windowsVirtualKeyCode: 38,
+    modifiers: 8,
+  });
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = projectNoteById(state.project, editedNote.id);
+      const transposedNote = projectNoteById(transposed.project, editedNote.id);
+      return (
+        state.lastAction === "clip.velocity_up" &&
+        note &&
+        transposedNote &&
+        note.velocity > transposedNote.velocity
+      );
+    },
+    "browser keyboard Shift+ArrowUp did not raise the selected note velocity"
   );
 }
 
@@ -1813,6 +1906,14 @@ function projectNotes(projectText) {
       rawNote: Number(parts[7]),
       velocity: Number(parts[8]),
     }));
+}
+
+function latestProjectNote(projectText) {
+  return projectNotes(projectText).sort((left, right) => right.id - left.id)[0] ?? null;
+}
+
+function projectNoteById(projectText, id) {
+  return projectNotes(projectText).find((note) => note.id === id) ?? null;
 }
 
 function thirdNoteStartBeat(projectText) {
