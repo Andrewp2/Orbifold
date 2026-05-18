@@ -67,6 +67,8 @@ The headless smoke currently covers:
 - piano-roll double-click creation, note drag, edge resize, velocity-handle
   drag, wheel pan/zoom, arrangement/piano-ruler seeking, loop-end dragging, and
   workspace splitter drags,
+- shared clip edit actions for copy, paste, duplicate, delete, snap toggle, and
+  quantizing an off-grid selected note,
 - browser project save/download and project open through real browser file
   inputs,
 - dirty-project open confirmation before creating a browser file input,

@@ -206,6 +206,7 @@ async function runSmoke(browserWsUrl) {
     await verifyPianoNoteDrag(send, sessionId);
     await verifyPianoNoteResize(send, sessionId);
     await verifyPianoVelocityDrag(send, sessionId);
+    await verifyBrowserClipEditActions(send, sessionId);
     await verifyTimelineAndLoopGestures(send, sessionId);
     await verifyPianoWheelNavigation(send, sessionId);
     await verifyWorkspaceResizeGestures(send, sessionId);
@@ -609,6 +610,139 @@ async function verifyPianoVelocityDrag(send, sessionId) {
   );
 }
 
+async function verifyBrowserClipEditActions(send, sessionId) {
+  const before = await evaluateProjectState(send, sessionId);
+  const sourceNote = projectNoteById(before.project, 3);
+  if (!sourceNote) {
+    throw new Error(`browser clip edit precondition found no note 3: ${before.project}`);
+  }
+  const beforeCount = persistedNoteCount(before.project);
+
+  await dispatchBrowserAction(send, sessionId, "clip.copy_note");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastAction === "clip.copy_note" &&
+      state.noteCount === before.noteCount &&
+      state.lastStatus.startsWith("Copied note"),
+    "browser clip copy did not copy the selected note without changing the project"
+  );
+
+  await dispatchBrowserAction(send, sessionId, "clip.paste_note");
+  const pasted = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = latestProjectNote(state.project);
+      return (
+        state.lastAction === "clip.paste_note" &&
+        persistedNoteCount(state.project) === beforeCount + 1 &&
+        note &&
+        note.id > sourceNote.id &&
+        note.velocity === sourceNote.velocity &&
+        note.durationBeat === sourceNote.durationBeat
+      );
+    },
+    "browser clip paste did not create a copied note through the shared action path"
+  );
+  const pastedNote = latestProjectNote(pasted.project);
+
+  await dispatchBrowserAction(send, sessionId, "clip.duplicate_note");
+  const duplicated = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = latestProjectNote(state.project);
+      return (
+        state.lastAction === "clip.duplicate_note" &&
+        persistedNoteCount(state.project) === beforeCount + 2 &&
+        state.lastStatus.includes("Duplicated clip note") &&
+        note &&
+        pastedNote &&
+        note.id > pastedNote.id &&
+        note.velocity === pastedNote.velocity
+      );
+    },
+    "browser clip duplicate did not duplicate the selected note through the shared action path"
+  );
+  const duplicatedNote = latestProjectNote(duplicated.project);
+
+  await dispatchBrowserAction(send, sessionId, "clip.delete_note");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastAction === "clip.delete_note" &&
+      persistedNoteCount(state.project) === beforeCount + 1 &&
+      duplicatedNote &&
+      !projectNoteById(state.project, duplicatedNote.id) &&
+      state.lastStatus.includes("Deleted clip note"),
+    "browser clip delete did not remove the selected note through the shared action path"
+  );
+
+  await verifyBrowserQuantizeAction(send, sessionId);
+}
+
+async function verifyBrowserQuantizeAction(send, sessionId) {
+  await dispatchBrowserAction(send, sessionId, "transport.snap");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.lastAction === "transport.snap" && state.lastStatus.includes("Snap off"),
+    "browser snap toggle did not turn snap off before quantize setup"
+  );
+
+  const geometry = await waitForPianoGeometry(send, sessionId, (geometry) => {
+    return geometry.gridX > 0 && geometry.gridWidth > 200 && geometry.addY > 0;
+  });
+  const offGridPoint = {
+    x: geometry.gridX + geometry.gridWidth * 0.3337,
+    y: geometry.addY,
+  };
+  const before = await evaluateProjectState(send, sessionId);
+  await doubleClickCanvasPoint(send, sessionId, offGridPoint.x, offGridPoint.y);
+  const added = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = latestProjectNote(state.project);
+      return (
+        persistedNoteCount(state.project) === persistedNoteCount(before.project) + 1 &&
+        note &&
+        !isQuantizedToSixteenth(note.startBeat)
+      );
+    },
+    "browser off-grid double-click did not create an unsnapped note with snap disabled"
+  );
+  const offGridNote = latestProjectNote(added.project);
+
+  await dispatchBrowserAction(send, sessionId, "transport.snap");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.lastAction === "transport.snap" && state.lastStatus.includes("Snap on"),
+    "browser snap toggle did not restore snap before quantize"
+  );
+
+  await dispatchBrowserAction(send, sessionId, "clip.quantize");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = offGridNote ? projectNoteById(state.project, offGridNote.id) : null;
+      return (
+        state.lastAction === "clip.quantize" &&
+        note &&
+        isQuantizedToSixteenth(note.startBeat) &&
+        Math.abs(note.startBeat - offGridNote.startBeat) > 0.0001 &&
+        state.lastStatus.startsWith("Quantized note")
+      );
+    },
+    "browser clip quantize did not snap the selected off-grid note"
+  );
+}
+
 async function verifyPianoGridDoubleClick(send, sessionId) {
   const geometry = await evaluatePianoGeometry(send, sessionId);
   if (geometry.addX <= 0 || geometry.addY <= 0) {
@@ -655,6 +789,34 @@ async function verifyPianoGridDoubleClick(send, sessionId) {
       lastState
     )}`
   );
+}
+
+async function doubleClickCanvasPoint(send, sessionId, x, y) {
+  for (const clickCount of [1, 2]) {
+    await send(
+      "Input.dispatchMouseEvent",
+      {
+        type: "mousePressed",
+        x,
+        y,
+        button: "left",
+        clickCount,
+      },
+      sessionId
+    );
+    await send(
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        clickCount,
+      },
+      sessionId
+    );
+    await delay(120);
+  }
 }
 
 async function evaluatePianoGeometry(send, sessionId) {
@@ -1982,6 +2144,10 @@ function thirdNoteDurationBeat(projectText) {
 
 function projectIncludesLoopBeats(state) {
   return state.project.includes(`\nloop_beats=${state.loopBeats}\n`);
+}
+
+function isQuantizedToSixteenth(beat) {
+  return Math.abs(beat * 16 - Math.round(beat * 16)) < 0.0001;
 }
 
 async function waitForOrbifoldReady(send, sessionId) {
