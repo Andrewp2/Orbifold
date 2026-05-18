@@ -9,6 +9,8 @@ mod text;
 #[cfg(any(test, feature = "web-app"))]
 mod text_audit;
 mod theme;
+#[cfg(any(test, feature = "web-app"))]
+mod visual_snapshot;
 #[cfg(all(feature = "web-app", target_arch = "wasm32"))]
 pub(crate) mod web;
 

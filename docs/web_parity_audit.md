@@ -106,10 +106,13 @@ substitute for human visual review.
 
 The visual capture script launches headless Chrome with WebGPU enabled, waits
 for the live runtime to render at compact, desktop, high-DPI, and 4K viewports,
-then writes PNGs and a manifest under `screenshots/web/`. It catches fallback
-startup, canvas coverage regressions, and blank headless captures before
-review. Inspect the images yourself; this is visual evidence, not a substitute
-for a human layout pass.
+then writes visual artifacts and a manifest under `screenshots/web/`. It writes
+PNG screenshots when Chrome can capture the WebGPU surface; when headless Chrome
+returns transparent screenshots, it falls back to an SVG paint snapshot exported
+by the live wasm runtime for that frame. Inspect the artifacts yourself; this is
+visual evidence, not a substitute for a human layout pass.
+The Pages workflow uploads visual artifacts for both the local build artifact
+and the deployed Pages URL so review evidence survives CI.
 
 ## Manual Evidence
 
@@ -129,7 +132,8 @@ these manual checks before treating web as parity-complete:
 - Run the browser UI on a high-DPI or 4K display and inspect layout scale, text
   overlap, piano-roll labels, panel resize handles, and canvas coverage.
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
-  inspect the compact, desktop, high-DPI, and 4K PNGs it writes.
+  inspect the compact, desktop, high-DPI, and 4K PNG or SVG artifacts it writes,
+  or inspect the deployed visual artifact uploaded by the Pages workflow.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
@@ -157,8 +161,9 @@ themselves:
 - `./scripts/build-web.sh dist` succeeds.
 - The static fallback shell displays.
 - Headless Chrome smoke passes without a manual browser/device pass.
-- A CDP screenshot is nonblank or blank. Headless WebGPU screenshot capture can
-  disagree with real UI state.
+- A CDP screenshot is nonblank or an SVG paint snapshot exists. The SVG fallback
+  is generated from Orbifold's paint list and can miss renderer-specific GPU
+  defects.
 - Web MIDI passes only with the deterministic mock, without a real device.
 - Web Audio reports an attached processor and nonzero generated samples, without
   confirming audible output in a real browser session.

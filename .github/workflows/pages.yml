@@ -68,6 +68,26 @@ jobs:
           done
           ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/
 
+      - name: Capture web visuals
+        run: |
+          python3 -m http.server 4173 --directory dist &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in {1..40}; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:4173/; then
+              break
+            fi
+            sleep 0.25
+          done
+          ./scripts/capture-web-visuals.mjs http://127.0.0.1:4173/ --out screenshots/web-local
+
+      - name: Upload local web visual artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbifold-web-visuals-local
+          path: screenshots/web-local
+          if-no-files-found: error
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
@@ -128,3 +148,20 @@ jobs:
             sleep 3
           done
           ./scripts/check-web-smoke.mjs "${{ steps.deployment.outputs.page_url }}"
+
+      - name: Capture deployed Pages visuals
+        run: |
+          for _ in {1..3}; do
+            if ./scripts/capture-web-visuals.mjs "${{ steps.deployment.outputs.page_url }}" --out screenshots/web-deployed; then
+              exit 0
+            fi
+            sleep 3
+          done
+          ./scripts/capture-web-visuals.mjs "${{ steps.deployment.outputs.page_url }}" --out screenshots/web-deployed
+
+      - name: Upload deployed web visual artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbifold-web-visuals-deployed
+          path: screenshots/web-deployed
+          if-no-files-found: error

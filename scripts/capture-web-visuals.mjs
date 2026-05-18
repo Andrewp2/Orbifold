@@ -73,7 +73,7 @@ try {
   fs.writeFileSync(manifestPath, `${JSON.stringify(result, null, 2)}\n`);
   console.log(`Orbifold web visual captures wrote ${runDir}`);
   for (const capture of result.captures) {
-    console.log(`- ${capture.label}: ${capture.screenshot}`);
+    console.log(`- ${capture.label}: ${capture.screenshot ?? capture.snapshot}`);
   }
   console.log(`- manifest: ${manifestPath}`);
 } catch (error) {
@@ -197,19 +197,9 @@ async function captureVisuals(browserWsUrl) {
   });
 
   try {
-    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
-    const { sessionId } = await send("Target.attachToTarget", {
-      targetId,
-      flatten: true,
-    });
-    await send("Runtime.enable", {}, sessionId);
-    await send("Log.enable", {}, sessionId);
-    await send("Network.enable", {}, sessionId);
-    await send("Page.enable", {}, sessionId);
-
     const captures = [];
     for (const viewport of viewports) {
-      captures.push(await captureViewport(send, sessionId, viewport));
+      captures.push(await captureViewportInFreshTarget(send, viewport));
     }
 
     return {
@@ -221,6 +211,23 @@ async function captureVisuals(browserWsUrl) {
     };
   } finally {
     ws.close();
+  }
+}
+
+async function captureViewportInFreshTarget(send, viewport) {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Runtime.enable", {}, sessionId);
+    await send("Log.enable", {}, sessionId);
+    await send("Network.enable", {}, sessionId);
+    await send("Page.enable", {}, sessionId);
+    return await captureViewport(send, sessionId, viewport);
+  } finally {
+    await send("Target.closeTarget", { targetId }).catch(() => {});
   }
 }
 
@@ -249,25 +256,48 @@ async function captureViewport(send, sessionId, viewport) {
   );
   const screenshotBytes = Buffer.from(screenshot.data, "base64");
   const imageStats = pngStats(screenshotBytes);
-  if (imageStats && imageStats.nonTransparentPixels === 0) {
-    throw new Error(
-      `${viewport.label} screenshot is blank/transparent; headless WebGPU capture cannot be used as visual evidence`
-    );
+  const screenshotUsable =
+    imageStats && imageStats.nonTransparentPixels > 0 && imageStats.rgbRange > 0;
+  const screenshotFallback = screenshotFallbackReason(imageStats);
+  if (screenshotUsable) {
+    const screenshotPath = path.join(runDir, `${viewport.label}.png`);
+    fs.writeFileSync(screenshotPath, screenshotBytes);
+
+    return {
+      ...viewport,
+      mode: "page-screenshot",
+      screenshot: screenshotPath,
+      imageStats,
+      state,
+    };
   }
-  if (imageStats && imageStats.rgbRange === 0) {
-    throw new Error(
-      `${viewport.label} screenshot has no color variation; headless WebGPU capture cannot be used as visual evidence`
-    );
-  }
-  const screenshotPath = path.join(runDir, `${viewport.label}.png`);
-  fs.writeFileSync(screenshotPath, screenshotBytes);
+
+  const snapshot = await readVisualSnapshot(send, sessionId, viewport);
+  const snapshotPath = path.join(runDir, `${viewport.label}.svg`);
+  fs.writeFileSync(snapshotPath, snapshot.svg);
 
   return {
     ...viewport,
-    screenshot: screenshotPath,
+    mode: "paint-snapshot-svg",
+    snapshot: snapshotPath,
+    screenshotFallback,
     imageStats,
+    snapshotStats: snapshot.stats,
     state,
   };
+}
+
+function screenshotFallbackReason(imageStats) {
+  if (!imageStats) {
+    return "screenshot statistics unavailable";
+  }
+  if (imageStats.nonTransparentPixels === 0) {
+    return "screenshot is blank/transparent";
+  }
+  if (imageStats.rgbRange === 0) {
+    return "screenshot has no color variation";
+  }
+  return "screenshot could not be used as visual evidence";
 }
 
 function urlForViewport(url, label) {
@@ -307,8 +337,37 @@ function isReadyForCapture(state, viewport) {
     Number(state.canvasWidth) >= minCanvasWidth &&
     Number(state.canvasHeight) >= minCanvasHeight &&
     Number(state.viewportWidth) >= minClientWidth &&
-    Number(state.viewportHeight) >= minClientHeight
+    Number(state.viewportHeight) >= minClientHeight &&
+    state.visualSnapshotReady === "1" &&
+    Number(state.visualSnapshotBytes) > 1000
   );
+}
+
+async function readVisualSnapshot(send, sessionId, viewport) {
+  const result = await send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => ({
+        svg: String(window.__orbifoldVisualSnapshotSvg || ""),
+        stats: {
+          bytes: Number(document.body.dataset.orbifoldVisualSnapshotBytes || 0),
+          itemCount: Number(document.body.dataset.orbifoldVisualSnapshotItemCount || 0),
+          unsupportedCount: Number(document.body.dataset.orbifoldVisualSnapshotUnsupportedCount || 0)
+        }
+      }))()`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  const snapshot = result.result.value ?? {};
+  const svg = String(snapshot.svg ?? "");
+  const stats = snapshot.stats ?? {};
+  if (!svg.includes("<svg") || svg.length < 1000 || Number(stats.itemCount ?? 0) < 10) {
+    throw new Error(
+      `${viewport.label} screenshot was unusable and no usable SVG paint snapshot was available`
+    );
+  }
+  return { svg, stats };
 }
 
 async function evaluateWebState(send, sessionId) {
@@ -341,6 +400,10 @@ async function evaluateWebState(send, sessionId) {
           pianoGridHeight: Number(dataset.orbifoldPianoGridHeight ?? 0),
           pianoRollHeight: Number(dataset.orbifoldPianoRollHeight ?? 0),
           rightPanelWidth: Number(dataset.orbifoldRightPanelWidth ?? 0),
+          visualSnapshotReady: dataset.orbifoldVisualSnapshotReady ?? "",
+          visualSnapshotBytes: Number(dataset.orbifoldVisualSnapshotBytes ?? 0),
+          visualSnapshotItemCount: Number(dataset.orbifoldVisualSnapshotItemCount ?? 0),
+          visualSnapshotUnsupportedCount: Number(dataset.orbifoldVisualSnapshotUnsupportedCount ?? 0),
           lastStatus: dataset.orbifoldLastStatus ?? ""
         };
       })()`,

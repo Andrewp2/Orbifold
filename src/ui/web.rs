@@ -373,6 +373,9 @@ impl WebOrbifoldApp {
         mark_browser_runtime_ready(self.frame_count, viewport);
         self.publish_browser_automation_geometry();
         self.publish_browser_text_audit();
+        if visual_snapshot_requested_js() {
+            self.publish_browser_visual_snapshot();
+        }
         self.publish_browser_runtime_state();
         self.runtime_ready_published = true;
     }
@@ -449,6 +452,29 @@ impl WebOrbifoldApp {
             Err(err) => {
                 let sample = format!("text audit layout failed: {err}");
                 publish_text_audit_js(0.0, 0.0, 1.0, &sample);
+            }
+        }
+    }
+
+    fn publish_browser_visual_snapshot(&self) {
+        let mut document = self.view(self.viewport);
+        let mut text_measurer = ApproxTextMeasurer;
+        match document.compute_layout(self.viewport, &mut text_measurer) {
+            Ok(()) => {
+                let snapshot =
+                    super::visual_snapshot::visual_snapshot_svg(&document, self.viewport);
+                publish_visual_snapshot_svg_js(
+                    &snapshot.svg,
+                    snapshot.item_count as f64,
+                    snapshot.unsupported_count as f64,
+                );
+            }
+            Err(err) => {
+                let svg = format!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}"><text x="16" y="32" fill="white">visual snapshot layout failed: {}</text></svg>"#,
+                    self.viewport.width, self.viewport.height, err
+                );
+                publish_visual_snapshot_svg_js(&svg, 0.0, 1.0);
             }
         }
     }
@@ -2230,6 +2256,18 @@ export function publish_text_audit_js(textCount, issueCount, nonFiniteCount, sam
   document.body.dataset.orbifoldTextAuditSampleIssue = String(sampleIssue || "");
 }
 
+export function visual_snapshot_requested_js() {
+  return new URLSearchParams(window.location.search).has("orbifold_visual");
+}
+
+export function publish_visual_snapshot_svg_js(svg, itemCount, unsupportedCount) {
+  window.__orbifoldVisualSnapshotSvg = String(svg || "");
+  document.body.dataset.orbifoldVisualSnapshotReady = "1";
+  document.body.dataset.orbifoldVisualSnapshotBytes = String(window.__orbifoldVisualSnapshotSvg.length);
+  document.body.dataset.orbifoldVisualSnapshotItemCount = String(itemCount || 0);
+  document.body.dataset.orbifoldVisualSnapshotUnsupportedCount = String(unsupportedCount || 0);
+}
+
 export function publish_pointer_action_js(action, phase, x, y) {
   document.body.dataset.orbifoldLastPointerAction = String(action || "");
   document.body.dataset.orbifoldLastPointerPhase = String(phase || "");
@@ -3081,6 +3119,12 @@ extern "C" {
         non_finite_count: f64,
         sample_issue: &str,
     );
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = visual_snapshot_requested_js)]
+    fn visual_snapshot_requested_js() -> bool;
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = publish_visual_snapshot_svg_js)]
+    fn publish_visual_snapshot_svg_js(svg: &str, item_count: f64, unsupported_count: f64);
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = publish_pointer_action_js)]
     fn publish_pointer_action_js(action: &str, phase: &str, x: f64, y: f64);

@@ -99,7 +99,11 @@ instrument, browser-imported asset, persisted panel-visibility settings, and the
 web UI-scale reload path restore from browser storage. It also resizes Chrome to
 a high-DPI viewport to catch canvas scaling regressions.
 The visual capture script writes compact, desktop, high-DPI, and 4K browser
-screenshots plus a manifest under `screenshots/web/` for manual inspection.
+visual artifacts plus a manifest under `screenshots/web/` for manual
+inspection. When headless Chrome returns transparent WebGPU screenshots, it
+falls back to an SVG paint snapshot exported by the live wasm runtime.
+The Pages workflow captures and uploads the same visual artifact set for both
+the local build artifact and the deployed Pages URL.
 Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
 automated evidence above from manual checks that require a real browser,
 deployed Pages site, audio output, and Web MIDI hardware.
