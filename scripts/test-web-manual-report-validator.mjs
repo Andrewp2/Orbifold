@@ -38,6 +38,23 @@ assertRejects(
 
 assertRejects(
   withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualVisualInspection"
+    ).evidence.inspectedLarge.textAuditIssueCount = 1;
+  }),
+  "manualVisualInspection.inspectedLarge.textAuditIssueCount expected 0"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualVisualInspection").evidence;
+    evidence.inspectedLarge = structuredClone(evidence.initial);
+  }),
+  "manualVisualInspection evidence should show a resize or high-DPI checkpoint"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
     draft.clicks = draft.clicks.filter((click) => click.name !== "record");
   }),
   "clicks.record expected at least 2"
@@ -216,6 +233,8 @@ function withChange(source, change) {
 function validManualReport() {
   const generatedAt = "2026-05-18T12:00:00.000Z";
   const targetUrl = "https://andrewp2.github.io/Orbifold/";
+  const initialVisual = visualState({ width: 1600, height: 1000, frameCount: 10 });
+  const largeVisual = visualState({ width: 2400, height: 1400, frameCount: 11 });
   const checks = [
     "browserRuntimeReady",
     "manualVisualInspection",
@@ -226,6 +245,10 @@ function validManualReport() {
     "webMidiConnectedState",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
+  checks.find((check) => check.name === "manualVisualInspection").evidence = {
+    initial: initialVisual,
+    inspectedLarge: largeVisual,
+  };
   checks.push({
     name: "manualRealMidiInput",
     pass: true,
@@ -369,6 +392,8 @@ function validManualReport() {
         canvasWidth: 1600,
         canvasHeight: 1000,
       },
+      beforeVisualInspection: initialVisual,
+      afterLargeVisualInspection: largeVisual,
       afterAudioRefresh: {
         audioOutputCount: 1,
         browserAudioOutputNames: "Default browser audio output",
@@ -417,6 +442,34 @@ function validManualReport() {
         frameCount: 13,
       },
     },
+  };
+}
+
+function visualState({ width, height, frameCount }) {
+  return {
+    className: "runtime-ready",
+    frameCount,
+    viewportWidth: width,
+    viewportHeight: height,
+    uiScale: width >= 2400 ? 1.5 : 1,
+    devicePixelRatio: 1,
+    innerWidth: width,
+    innerHeight: height,
+    documentScrollWidth: width,
+    documentScrollHeight: height,
+    canvasClientWidth: width,
+    canvasClientHeight: height,
+    canvasWidth: width,
+    canvasHeight: height,
+    canvasLeft: 0,
+    canvasTop: 0,
+    canvasRectWidth: width,
+    canvasRectHeight: height,
+    textAuditReady: "1",
+    textAuditCount: 64,
+    textAuditIssueCount: 0,
+    textAuditNonFiniteCount: 0,
+    textAuditSampleIssue: "",
   };
 }
 

@@ -150,6 +150,21 @@ export function validateManualDeviceReport(report) {
   requireEqual(report.states.runtime.hasGpu, true, "states.runtime.hasGpu");
   requirePositiveNumber(report.states.runtime.canvasWidth, "states.runtime.canvasWidth");
   requirePositiveNumber(report.states.runtime.canvasHeight, "states.runtime.canvasHeight");
+  requireObject(report.states.beforeVisualInspection, "states.beforeVisualInspection");
+  requireObject(report.states.afterLargeVisualInspection, "states.afterLargeVisualInspection");
+  const visualEvidence = requirePassedCheckEvidence("manualVisualInspection");
+  requireObject(visualEvidence.initial, "manualVisualInspection.initial");
+  requireObject(visualEvidence.inspectedLarge, "manualVisualInspection.inspectedLarge");
+  requireManualVisualState(visualEvidence.initial, "manualVisualInspection.initial");
+  requireManualVisualState(
+    visualEvidence.inspectedLarge,
+    "manualVisualInspection.inspectedLarge"
+  );
+  if (!manualVisualStateShowsResize(visualEvidence.initial, visualEvidence.inspectedLarge)) {
+    throw new Error(
+      "manualVisualInspection evidence should show a resize or high-DPI checkpoint"
+    );
+  }
 
   requireObject(report.states.afterAudioRefresh, "states.afterAudioRefresh");
   requirePositiveNumber(
@@ -489,6 +504,56 @@ function requireRequiredWorkflows(evidence, label, requiredWorkflows) {
       throw new Error(`${label}.requiredWorkflows should include ${workflow}`);
     }
   }
+}
+
+function requireManualVisualState(state, label) {
+  requireTruthy(state.className, `${label}.className`);
+  if (!String(state.className).includes("runtime-ready")) {
+    throw new Error(`${label}.className should include runtime-ready`);
+  }
+  requirePositiveNumber(state.frameCount, `${label}.frameCount`);
+  requirePositiveNumber(state.viewportWidth, `${label}.viewportWidth`);
+  requirePositiveNumber(state.viewportHeight, `${label}.viewportHeight`);
+  requirePositiveNumber(state.uiScale, `${label}.uiScale`);
+  requirePositiveNumber(state.devicePixelRatio, `${label}.devicePixelRatio`);
+  requirePositiveNumber(state.canvasClientWidth, `${label}.canvasClientWidth`);
+  requirePositiveNumber(state.canvasClientHeight, `${label}.canvasClientHeight`);
+  requirePositiveNumber(state.canvasWidth, `${label}.canvasWidth`);
+  requirePositiveNumber(state.canvasHeight, `${label}.canvasHeight`);
+  requireFiniteNumber(state.canvasLeft, `${label}.canvasLeft`);
+  requireFiniteNumber(state.canvasTop, `${label}.canvasTop`);
+  requirePositiveNumber(state.canvasRectWidth, `${label}.canvasRectWidth`);
+  requirePositiveNumber(state.canvasRectHeight, `${label}.canvasRectHeight`);
+  requirePositiveNumber(state.textAuditCount, `${label}.textAuditCount`);
+  requireEqual(state.textAuditReady, "1", `${label}.textAuditReady`);
+  requireEqual(Number(state.textAuditIssueCount), 0, `${label}.textAuditIssueCount`);
+  requireEqual(Number(state.textAuditNonFiniteCount), 0, `${label}.textAuditNonFiniteCount`);
+  if (state.textAuditSampleIssue) {
+    throw new Error(`${label}.textAuditSampleIssue should be empty`);
+  }
+
+  const dpr = Math.max(1, Number(state.devicePixelRatio));
+  if (Number(state.canvasWidth) < Number(state.canvasClientWidth) * dpr - 2) {
+    throw new Error(`${label}.canvasWidth should cover client width at devicePixelRatio`);
+  }
+  if (Number(state.canvasHeight) < Number(state.canvasClientHeight) * dpr - 2) {
+    throw new Error(`${label}.canvasHeight should cover client height at devicePixelRatio`);
+  }
+  if (Number(state.canvasRectWidth) < Number(state.canvasClientWidth) - 2) {
+    throw new Error(`${label}.canvasRectWidth should cover canvas client width`);
+  }
+  if (Number(state.canvasRectHeight) < Number(state.canvasClientHeight) - 2) {
+    throw new Error(`${label}.canvasRectHeight should cover canvas client height`);
+  }
+}
+
+function manualVisualStateShowsResize(initial, inspectedLarge) {
+  return (
+    Math.abs(Number(initial.canvasClientWidth) - Number(inspectedLarge.canvasClientWidth)) >= 16 ||
+    Math.abs(Number(initial.canvasClientHeight) - Number(inspectedLarge.canvasClientHeight)) >= 16 ||
+    Math.abs(Number(initial.devicePixelRatio) - Number(inspectedLarge.devicePixelRatio)) >= 0.1 ||
+    Math.abs(Number(initial.uiScale) - Number(inspectedLarge.uiScale)) >= 0.01
+  );
 }
 
 function shortcutEvidenceHasConcreteChange(before, after) {

@@ -142,12 +142,31 @@ async function runManualDeviceCheck() {
 
   console.log("\nA Chrome window is open for manual web parity checks.");
   console.log("This is not a CI check: it requires real audio, real Web MIDI, and your ears.");
+  report.states.beforeVisualInspection = await evaluateManualVisualState();
   await promptEnter(
     "Inspect the UI for full-window canvas coverage and obvious text overlap, then press Enter."
   );
-  const visualOk = await confirm("Does the browser UI look usable at this size?");
+  const initialVisualOk = await confirm("Does the browser UI look usable at this size?");
+  await promptEnter(
+    "Resize Chrome or fullscreen it to the largest/high-DPI or 4K-like size available, inspect layout scale, canvas coverage, and text overlap again, then press Enter."
+  );
+  await delay(1000);
+  report.states.afterLargeVisualInspection = await evaluateManualVisualState();
+  const largeVisualOk = await confirm("Does the resized/high-DPI browser UI still look usable?");
+  const visualOk =
+    initialVisualOk &&
+    largeVisualOk &&
+    manualVisualStateLooksClean(report.states.beforeVisualInspection) &&
+    manualVisualStateLooksClean(report.states.afterLargeVisualInspection) &&
+    manualVisualStateShowsResize(
+      report.states.beforeVisualInspection,
+      report.states.afterLargeVisualInspection
+    );
   report.userConfirmations.visualInspection = visualOk;
-  addCheck("manualVisualInspection", visualOk, pickRuntimeEvidence(await evaluateRuntimeState()));
+  addCheck("manualVisualInspection", visualOk, {
+    initial: report.states.beforeVisualInspection,
+    inspectedLarge: report.states.afterLargeVisualInspection,
+  });
 
   await clickManualControl("viewDevices");
   await delay(500);
@@ -680,6 +699,49 @@ async function evaluateProjectState() {
   return result.result.value ?? {};
 }
 
+async function evaluateManualVisualState() {
+  const result = await send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => {
+        const canvas = document.getElementById("orbifold-canvas");
+        const body = document.body;
+        const html = document.documentElement;
+        const dataset = body?.dataset ?? {};
+        const rect = canvas?.getBoundingClientRect();
+        return {
+          className: body?.className ?? "",
+          frameCount: Number(dataset.orbifoldFrameCount ?? 0),
+          viewportWidth: Number(dataset.orbifoldViewportWidth ?? 0),
+          viewportHeight: Number(dataset.orbifoldViewportHeight ?? 0),
+          uiScale: Number(dataset.orbifoldUiScale ?? 0),
+          devicePixelRatio: window.devicePixelRatio || 1,
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          documentScrollWidth: html.scrollWidth,
+          documentScrollHeight: html.scrollHeight,
+          canvasClientWidth: canvas?.clientWidth ?? 0,
+          canvasClientHeight: canvas?.clientHeight ?? 0,
+          canvasWidth: canvas?.width ?? 0,
+          canvasHeight: canvas?.height ?? 0,
+          canvasLeft: rect?.left ?? 0,
+          canvasTop: rect?.top ?? 0,
+          canvasRectWidth: rect?.width ?? 0,
+          canvasRectHeight: rect?.height ?? 0,
+          textAuditReady: dataset.orbifoldTextAuditReady ?? "",
+          textAuditCount: Number(dataset.orbifoldTextAuditCount ?? 0),
+          textAuditIssueCount: Number(dataset.orbifoldTextAuditIssueCount ?? 0),
+          textAuditNonFiniteCount: Number(dataset.orbifoldTextAuditNonFiniteCount ?? 0),
+          textAuditSampleIssue: dataset.orbifoldTextAuditSampleIssue ?? ""
+        };
+      })()`,
+      returnByValue: true,
+    },
+    pageSession
+  );
+  return result.result.value ?? {};
+}
+
 async function evaluateManualControlGeometry() {
   const result = await send(
     "Runtime.evaluate",
@@ -788,6 +850,34 @@ function pickRuntimeEvidence(state) {
     },
     hasGpu: state.hasGpu,
   };
+}
+
+function manualVisualStateLooksClean(state) {
+  const dpr = Math.max(1, Number(state.devicePixelRatio) || 1);
+  return (
+    String(state.className ?? "").includes("runtime-ready") &&
+    Number(state.frameCount) > 0 &&
+    Number(state.canvasClientWidth) > 0 &&
+    Number(state.canvasClientHeight) > 0 &&
+    Number(state.canvasWidth) >= Number(state.canvasClientWidth) * dpr - 2 &&
+    Number(state.canvasHeight) >= Number(state.canvasClientHeight) * dpr - 2 &&
+    Number(state.canvasRectWidth) >= Number(state.canvasClientWidth) - 2 &&
+    Number(state.canvasRectHeight) >= Number(state.canvasClientHeight) - 2 &&
+    state.textAuditReady === "1" &&
+    Number(state.textAuditCount) > 0 &&
+    Number(state.textAuditIssueCount) === 0 &&
+    Number(state.textAuditNonFiniteCount) === 0 &&
+    !state.textAuditSampleIssue
+  );
+}
+
+function manualVisualStateShowsResize(initial, inspectedLarge) {
+  return (
+    Math.abs(Number(initial.canvasClientWidth) - Number(inspectedLarge.canvasClientWidth)) >= 16 ||
+    Math.abs(Number(initial.canvasClientHeight) - Number(inspectedLarge.canvasClientHeight)) >= 16 ||
+    Math.abs(Number(initial.devicePixelRatio) - Number(inspectedLarge.devicePixelRatio)) >= 0.1 ||
+    Math.abs(Number(initial.uiScale) - Number(inspectedLarge.uiScale)) >= 0.01
+  );
 }
 
 function pickShortcutParityEvidence(state) {

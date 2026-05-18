@@ -102,6 +102,8 @@ console.log("web parity status behavior ok");
 function validManualReport() {
   const generatedAt = "2026-05-18T12:00:00.000Z";
   const targetUrl = "https://example.invalid/Orbifold/";
+  const initialVisual = visualState({ width: 1600, height: 1000, frameCount: 10 });
+  const largeVisual = visualState({ width: 2400, height: 1400, frameCount: 11 });
   const checks = [
     "browserRuntimeReady",
     "manualVisualInspection",
@@ -112,6 +114,10 @@ function validManualReport() {
     "webMidiConnectedState",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
+  checks.find((check) => check.name === "manualVisualInspection").evidence = {
+    initial: initialVisual,
+    inspectedLarge: largeVisual,
+  };
   checks.push({
     name: "manualRealMidiInput",
     pass: true,
@@ -238,6 +244,8 @@ function validManualReport() {
     },
     states: {
       runtime: { hasGpu: true, canvasWidth: 1600, canvasHeight: 1000 },
+      beforeVisualInspection: initialVisual,
+      afterLargeVisualInspection: largeVisual,
       afterAudioRefresh: {
         audioOutputCount: 1,
         browserAudioOutputNames: "Default browser audio output",
@@ -358,6 +366,34 @@ function capture(label, width, height, deviceScaleFactor, evidencePath) {
       itemCount: 20,
       unsupportedCount: 0,
     },
+  };
+}
+
+function visualState({ width, height, frameCount }) {
+  return {
+    className: "runtime-ready",
+    frameCount,
+    viewportWidth: width,
+    viewportHeight: height,
+    uiScale: width >= 2400 ? 1.5 : 1,
+    devicePixelRatio: 1,
+    innerWidth: width,
+    innerHeight: height,
+    documentScrollWidth: width,
+    documentScrollHeight: height,
+    canvasClientWidth: width,
+    canvasClientHeight: height,
+    canvasWidth: width,
+    canvasHeight: height,
+    canvasLeft: 0,
+    canvasTop: 0,
+    canvasRectWidth: width,
+    canvasRectHeight: height,
+    textAuditReady: "1",
+    textAuditCount: 64,
+    textAuditIssueCount: 0,
+    textAuditNonFiniteCount: 0,
+    textAuditSampleIssue: "",
   };
 }
 

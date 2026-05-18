@@ -291,7 +291,8 @@ musically usable.
   after a successful manual hardware pass.
 - Run `./scripts/check-web-manual-report.mjs reports/` against the generated
   report and confirm it accepts the real browser/audio/MIDI evidence, manual
-  file-picker/shortcut/piano-roll confirmations, and artifact fingerprint.
+  file-picker/shortcut/piano-roll confirmations, initial plus resized/high-DPI
+  visual evidence with zero text-audit issues, and artifact fingerprint.
 - Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
   if you need a quick diagnostic of which saved parity evidence artifact is
   still missing for the deployed target. Do not treat the status diagnostic as a
