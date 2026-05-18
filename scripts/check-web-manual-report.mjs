@@ -18,6 +18,9 @@ const requiredChecks = [
   "webMidiConnectedState",
   "manualRealMidiInput",
   "manualRealMidiRecording",
+  "manualBrowserFileFlows",
+  "manualShortcutParity",
+  "manualPianoRollParity",
   "manualDeviceVerifierCompleted",
 ];
 
@@ -118,6 +121,9 @@ export function validateManualDeviceReport(report) {
     true,
     "realMidiRecordingVisible"
   );
+  requireEqual(report.userConfirmations.browserFileFlows, true, "browserFileFlows");
+  requireEqual(report.userConfirmations.shortcutParity, true, "shortcutParity");
+  requireEqual(report.userConfirmations.pianoRollParity, true, "pianoRollParity");
 
   requireObject(report.states.runtime, "states.runtime");
   requireEqual(report.states.runtime.hasGpu, true, "states.runtime.hasGpu");
@@ -218,6 +224,27 @@ export function validateManualDeviceReport(report) {
   if (!(Number(recordingEvidence.afterNoteCount) > Number(recordingEvidence.beforeNoteCount))) {
     throw new Error("manualRealMidiRecording evidence should show a new recorded note");
   }
+
+  requireObject(report.states.afterBrowserFileFlows, "states.afterBrowserFileFlows");
+  requirePositiveNumber(
+    report.states.afterBrowserFileFlows.frameCount,
+    "states.afterBrowserFileFlows.frameCount"
+  );
+  requirePassedCheck("manualBrowserFileFlows");
+
+  requireObject(report.states.afterShortcutParity, "states.afterShortcutParity");
+  requirePositiveNumber(
+    report.states.afterShortcutParity.frameCount,
+    "states.afterShortcutParity.frameCount"
+  );
+  requirePassedCheck("manualShortcutParity");
+
+  requireObject(report.states.afterPianoRollParity, "states.afterPianoRollParity");
+  requirePositiveNumber(
+    report.states.afterPianoRollParity.frameCount,
+    "states.afterPianoRollParity.frameCount"
+  );
+  requirePassedCheck("manualPianoRollParity");
 }
 
 export async function resolveReportPath(targetPath) {

@@ -59,6 +59,20 @@ assertRejects(
   "manualRealMidiRecording evidence should show a new recorded note"
 );
 
+assertRejects(
+  withChange(report, (draft) => {
+    draft.userConfirmations.browserFileFlows = false;
+  }),
+  "browserFileFlows expected true"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.states.afterPianoRollParity.frameCount = 0;
+  }),
+  "states.afterPianoRollParity.frameCount should be a positive number"
+);
+
 console.log("manual web device report validator behavior ok");
 
 function assertRejects(candidate, message) {
@@ -84,6 +98,9 @@ function validManualReport() {
     "manualAudibleWebAudio",
     "webMidiInputsDiscovered",
     "webMidiConnectedState",
+    "manualBrowserFileFlows",
+    "manualShortcutParity",
+    "manualPianoRollParity",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
   checks.push({
@@ -143,6 +160,9 @@ function validManualReport() {
       audibleA4: true,
       realMidiNoteVisible: true,
       realMidiRecordingVisible: true,
+      browserFileFlows: true,
+      shortcutParity: true,
+      pianoRollParity: true,
     },
     states: {
       runtime: {
@@ -181,6 +201,15 @@ function validManualReport() {
       },
       afterMidiRecording: {
         noteCount: 3,
+      },
+      afterBrowserFileFlows: {
+        frameCount: 10,
+      },
+      afterShortcutParity: {
+        frameCount: 11,
+      },
+      afterPianoRollParity: {
+        frameCount: 12,
       },
     },
   };

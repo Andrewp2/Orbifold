@@ -275,6 +275,61 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterMidiRecording.lastStatus,
   });
 
+  await promptEnter(
+    "Use the browser UI with real file pickers: save/open a .orbifold project, load a Scala .scl scale, load a Lumatone .ltn key map, import a supported WAV asset, reload the page, and confirm the state restores. Press Enter when finished."
+  );
+  report.states.afterBrowserFileFlows = await evaluateProjectState();
+  const browserFileFlows = await confirm(
+    "Did browser project/scale/key-map/asset file flows and reload persistence work?"
+  );
+  report.userConfirmations.browserFileFlows = browserFileFlows;
+  addCheck("manualBrowserFileFlows", browserFileFlows, {
+    title: report.states.afterBrowserFileFlows.title,
+    lastStatus: report.states.afterBrowserFileFlows.lastStatus,
+    noteCount: report.states.afterBrowserFileFlows.noteCount,
+    assetCount: report.states.afterBrowserFileFlows.assetCount,
+    scaleDescription: report.states.afterBrowserFileFlows.scaleDescription,
+    scalaPath: report.states.afterBrowserFileFlows.scalaPath,
+    lumatonePath: report.states.afterBrowserFileFlows.lumatonePath,
+    lumatoneLoaded: report.states.afterBrowserFileFlows.lumatoneLoaded,
+    downloadFileName: report.states.afterBrowserFileFlows.downloadFileName,
+    downloadSize: report.states.afterBrowserFileFlows.downloadSize,
+  });
+
+  await promptEnter(
+    "Spot-check browser shortcuts against native behavior for transport, editing, file commands, help, and UI zoom. Press Enter when finished."
+  );
+  report.states.afterShortcutParity = await evaluateProjectState();
+  const shortcutParity = await confirm("Did the browser keyboard shortcuts match native behavior?");
+  report.userConfirmations.shortcutParity = shortcutParity;
+  addCheck("manualShortcutParity", shortcutParity, {
+    lastAction: report.states.afterShortcutParity.lastAction,
+    lastStatus: report.states.afterShortcutParity.lastStatus,
+    noteCount: report.states.afterShortcutParity.noteCount,
+    transportPlaying: report.states.afterShortcutParity.transportPlaying,
+    uiScale: report.states.afterShortcutParity.uiScale,
+  });
+
+  await promptEnter(
+    "Compare browser and native piano-roll/workspace behavior: create, select, move, resize, velocity edit, scroll, zoom, seek, loop-boundary drag, and panel resizing. Press Enter when finished."
+  );
+  report.states.afterPianoRollParity = await evaluateProjectState();
+  const pianoRollParity = await confirm(
+    "Did browser piano-roll and workspace interactions match native behavior?"
+  );
+  report.userConfirmations.pianoRollParity = pianoRollParity;
+  addCheck("manualPianoRollParity", pianoRollParity, {
+    noteCount: report.states.afterPianoRollParity.noteCount,
+    transportPositionBeats: report.states.afterPianoRollParity.transportPositionBeats,
+    loopBeats: report.states.afterPianoRollParity.loopBeats,
+    pianoViewStart: report.states.afterPianoRollParity.pianoViewStart,
+    pianoViewBeats: report.states.afterPianoRollParity.pianoViewBeats,
+    pianoGridWidth: report.states.afterPianoRollParity.pianoGridWidth,
+    pianoGridHeight: report.states.afterPianoRollParity.pianoGridHeight,
+    pianoRollHeight: report.states.afterPianoRollParity.pianoRollHeight,
+    rightPanelWidth: report.states.afterPianoRollParity.rightPanelWidth,
+  });
+
   const passed = report.checks.every((check) => check.pass);
   addCheck("manualDeviceVerifierCompleted", passed, {
     passedChecks: report.checks.filter((check) => check.pass).length,
@@ -568,9 +623,30 @@ async function evaluateProjectState() {
         className: document.body?.className ?? "",
         lastAction: document.body.dataset.orbifoldLastAction ?? "",
         noteCount: Number(document.body.dataset.orbifoldProjectNoteCount ?? 0),
+        assetCount: Number(document.body.dataset.orbifoldAudioAssetCount ?? 0),
         project: localStorage.getItem("orbifold.project.v1") || "",
+        settings: localStorage.getItem("orbifold.settings.v1") || "",
         lastStatus: document.body.dataset.orbifoldLastStatus ?? "",
         frameCount: Number(document.body.dataset.orbifoldFrameCount ?? 0),
+        transportPlaying: document.body.dataset.orbifoldTransportPlaying === "1",
+        transportPositionBeats: Number(document.body.dataset.orbifoldTransportPositionBeats ?? 0),
+        loopBeats: Number(document.body.dataset.orbifoldLoopBeats ?? 0),
+        uiScale: Number(document.body.dataset.orbifoldUiScale ?? 0),
+        showAssetBrowser: document.body.dataset.orbifoldShowAssetBrowser === "1",
+        showScaleBrowser: document.body.dataset.orbifoldShowScaleBrowser === "1",
+        showClipPanel: document.body.dataset.orbifoldShowClipPanel === "1",
+        scaleDescription: document.body.dataset.orbifoldScaleDescription ?? "",
+        scalaPath: document.body.dataset.orbifoldScalaPath ?? "",
+        lumatonePath: document.body.dataset.orbifoldLumatonePath ?? "",
+        lumatoneLoaded: document.body.dataset.orbifoldLumatoneLoaded === "1",
+        downloadFileName: document.body.dataset.orbifoldLastDownloadFileName ?? "",
+        downloadSize: Number(document.body.dataset.orbifoldLastDownloadSize ?? 0),
+        pianoGridWidth: Number(document.body.dataset.orbifoldPianoGridWidth ?? 0),
+        pianoGridHeight: Number(document.body.dataset.orbifoldPianoGridHeight ?? 0),
+        pianoViewStart: Number(document.body.dataset.orbifoldPianoViewStart ?? 0),
+        pianoViewBeats: Number(document.body.dataset.orbifoldPianoViewBeats ?? 0),
+        pianoRollHeight: Number(document.body.dataset.orbifoldPianoRollHeight ?? 0),
+        rightPanelWidth: Number(document.body.dataset.orbifoldRightPanelWidth ?? 0),
         midiInputCount: Number(document.body.dataset.orbifoldMidiInputCount ?? 0),
         connectedMidiInput: document.body.dataset.orbifoldConnectedMidiInput ?? "",
         browserMidiInputNames: document.body.dataset.orbifoldBrowserMidiInputNames ?? "",

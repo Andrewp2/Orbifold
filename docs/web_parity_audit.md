@@ -167,17 +167,20 @@ these manual checks before treating web as parity-complete:
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence. The
   report records a hash fingerprint for the deployed HTML, wasm loader, wasm
-  binary, and icon files at the time of manual testing. Add `--finalize` when
-  you want a successful manual pass to run the report validator, final parity
-  gate, and saved-evidence completion verifier immediately.
+  binary, and icon files at the time of manual testing. It also requires
+  explicit manual confirmations for real browser file-picker flows, shortcut
+  parity, and piano-roll/workspace interaction parity. Add `--finalize` when you
+  want a successful manual pass to run the report validator, final parity gate,
+  and saved-evidence completion verifier immediately.
 - Run `./scripts/check-web-manual-report.mjs reports/` and keep the validator
   output with the manual report. A report only counts when every required check,
   user confirmation, real browser click, audible Web Audio sample, real MIDI
-  input, MIDI recording evidence field, and deployed artifact fingerprint passes
-  validation. The validator also requires the verifier's host, Chrome, real
-  click-coordinate, and timestamp metadata, and rejects reports that recorded
-  browser runtime exceptions, console errors/assertions, network load failures,
-  or browser log errors, so unchecked or partial JSON cannot stand in for the
+  input, MIDI recording evidence field, manual file/shortcut/piano-roll parity
+  confirmation, and deployed artifact fingerprint passes validation. The
+  validator also requires the verifier's host, Chrome, real click-coordinate,
+  frame-state, and timestamp metadata, and rejects reports that recorded browser
+  runtime exceptions, console errors/assertions, network load failures, or
+  browser log errors, so unchecked or partial JSON cannot stand in for the
   browser session.
 - Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
   when you need a quick diagnostic of which saved evidence artifact is missing

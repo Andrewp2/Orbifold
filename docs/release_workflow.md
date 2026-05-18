@@ -85,8 +85,9 @@ web evidence that CI cannot provide.
 When the manual browser/device pass writes `reports/web-manual-devices-*.json`,
 run `./scripts/check-web-manual-report.mjs reports/` so the release evidence is
 checked for passed Web Audio, Web MIDI, real-click, and user-confirmation
-fields, plus the deployed artifact fingerprint, instead of only preserving an
-unchecked JSON file. You can also run the manual browser/device command with
+fields, including real file-picker, shortcut, and piano-roll parity
+confirmations, plus the deployed artifact fingerprint, instead of only
+preserving an unchecked JSON file. You can also run the manual browser/device command with
 `--finalize` to run this validator and the remaining parity gates immediately
 after the hardware prompts pass.
 Then run

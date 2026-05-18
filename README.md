@@ -116,9 +116,10 @@ automated evidence above from manual checks that require a real browser,
 deployed Pages site, audio output, and Web MIDI hardware. The manual-device
 script has a `--preflight` mode that checks Chrome, Node WebSocket support, and
 the deployed artifact fingerprint without opening the interactive session. The
-full manual run opens a real Chrome session, prompts for audible Web Audio and
-hardware Web MIDI confirmation, records the deployed artifact fingerprint, and
-writes a JSON report under `reports/`. Validate that report with
+full manual run opens a real Chrome session, prompts for audible Web Audio,
+hardware Web MIDI, real file-picker flows, shortcut parity, and piano-roll
+workflow confirmation, records the deployed artifact fingerprint, and writes a
+JSON report under `reports/`. Validate that report with
 `./scripts/check-web-manual-report.mjs reports/` before treating the manual
 device pass as release evidence. Add `--finalize` to the manual-device command
 when you want a successful manual pass to immediately run the manual-report

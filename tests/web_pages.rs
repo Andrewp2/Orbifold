@@ -369,6 +369,12 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "webMidiConnectedState",
         "manualRealMidiInput",
         "manualRealMidiRecording",
+        "manualBrowserFileFlows",
+        "manualShortcutParity",
+        "manualPianoRollParity",
+        "browserFileFlows",
+        "shortcutParity",
+        "pianoRollParity",
         "web-manual-devices-",
         "reports",
     ] {
@@ -423,6 +429,12 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "manualAudibleWebAudio",
         "manualRealMidiInput",
         "manualRealMidiRecording",
+        "manualBrowserFileFlows",
+        "manualShortcutParity",
+        "manualPianoRollParity",
+        "browserFileFlows",
+        "shortcutParity",
+        "pianoRollParity",
         "host.platform",
         "host.arch",
         "host.release",
@@ -470,6 +482,8 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "states.afterAudioTest.audioNonzero expected true",
         "manualRealMidiInput evidence should show a changed MIDI status or note",
         "manualRealMidiRecording evidence should show a new recorded note",
+        "browserFileFlows expected true",
+        "states.afterPianoRollParity.frameCount should be a positive number",
         "manual web device report validator behavior ok",
     ] {
         assert!(
@@ -688,7 +702,7 @@ fn web_parity_status_script_reports_missing_evidence() {
         "inspectWebParityStatus(path.join(tempDir, \"missing\"))",
         "missingStatus.complete, false",
         "completeStatus.complete, true",
-        "completeStatus.manualReport.checkCount, 10",
+        "completeStatus.manualReport.checkCount, 13",
         "web parity status behavior ok",
     ] {
         assert!(

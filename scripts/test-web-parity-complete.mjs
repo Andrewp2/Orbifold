@@ -231,6 +231,9 @@ function validManualReport() {
     "manualAudibleWebAudio",
     "webMidiInputsDiscovered",
     "webMidiConnectedState",
+    "manualBrowserFileFlows",
+    "manualShortcutParity",
+    "manualPianoRollParity",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
   checks.push({
@@ -277,6 +280,9 @@ function validManualReport() {
       audibleA4: true,
       realMidiNoteVisible: true,
       realMidiRecordingVisible: true,
+      browserFileFlows: true,
+      shortcutParity: true,
+      pianoRollParity: true,
     },
     states: {
       runtime: { hasGpu: true, canvasWidth: 1600, canvasHeight: 1000 },
@@ -307,6 +313,9 @@ function validManualReport() {
       },
       afterRealMidiNote: { lastMidiStatus: 144, lastMidiNote: 60 },
       afterMidiRecording: { noteCount: 3 },
+      afterBrowserFileFlows: { frameCount: 10 },
+      afterShortcutParity: { frameCount: 11 },
+      afterPianoRollParity: { frameCount: 12 },
     },
   };
 }

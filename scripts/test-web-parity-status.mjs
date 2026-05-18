@@ -63,7 +63,7 @@ try {
   assert.equal(completeStatus.complete, true);
   assert.equal(completeStatus.manualReport.ok, true);
   assert.equal(completeStatus.manualReport.path, manualPath);
-  assert.equal(completeStatus.manualReport.checkCount, 10);
+  assert.equal(completeStatus.manualReport.checkCount, 13);
   assert.equal(completeStatus.completionReport.ok, true);
   assert.equal(completeStatus.completionReport.path, gatePath);
 
@@ -105,6 +105,9 @@ function validManualReport() {
     "manualAudibleWebAudio",
     "webMidiInputsDiscovered",
     "webMidiConnectedState",
+    "manualBrowserFileFlows",
+    "manualShortcutParity",
+    "manualPianoRollParity",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
   checks.push({
@@ -151,6 +154,9 @@ function validManualReport() {
       audibleA4: true,
       realMidiNoteVisible: true,
       realMidiRecordingVisible: true,
+      browserFileFlows: true,
+      shortcutParity: true,
+      pianoRollParity: true,
     },
     states: {
       runtime: { hasGpu: true, canvasWidth: 1600, canvasHeight: 1000 },
@@ -185,6 +191,15 @@ function validManualReport() {
       },
       afterMidiRecording: {
         noteCount: 3,
+      },
+      afterBrowserFileFlows: {
+        frameCount: 10,
+      },
+      afterShortcutParity: {
+        frameCount: 11,
+      },
+      afterPianoRollParity: {
+        frameCount: 12,
       },
     },
   };
