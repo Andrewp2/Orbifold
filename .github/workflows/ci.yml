@@ -50,6 +50,7 @@ jobs:
           node scripts/test-web-manual-devices.mjs
           node scripts/test-web-manual-report-validator.mjs
           node scripts/test-web-parity-gate.mjs
+          node scripts/test-web-visual-layout-helpers.mjs
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

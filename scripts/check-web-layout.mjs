@@ -3,10 +3,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const url = process.argv[2];
-const timeoutMs = numberFromEnv("ORBIFOLD_WEB_LAYOUT_TIMEOUT_MS", 20_000);
-const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let url = "";
+let timeoutMs = numberFromEnv("ORBIFOLD_WEB_LAYOUT_TIMEOUT_MS", 20_000);
+let devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let chromePath = "";
+let stdout = "";
+let stderr = "";
 
 const viewports = [
   { label: "compact-1200x760", width: 1200, height: 760, deviceScaleFactor: 1 },
@@ -15,68 +19,76 @@ const viewports = [
   { label: "wide-3840x2160", width: 3840, height: 2160, deviceScaleFactor: 1 },
 ];
 
-if (!url) {
-  console.error("usage: scripts/check-web-layout.mjs <url>");
-  process.exit(2);
+if (isCliEntrypoint()) {
+  await runLayoutCli(process.argv.slice(2));
 }
 
-if (typeof WebSocket !== "function") {
-  console.error("Node.js with a global WebSocket implementation is required.");
-  process.exit(2);
-}
+async function runLayoutCli(args) {
+  url = args[0] ?? "";
 
-const chromePath = findChrome();
-if (!chromePath) {
-  console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
-  process.exit(2);
-}
-
-const profile = fs.mkdtempSync(`${os.tmpdir()}/orbifold-web-layout-`);
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--remote-debugging-port=0",
-    "--enable-unsafe-webgpu",
-    "--ignore-gpu-blocklist",
-    "--disable-dev-shm-usage",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--no-sandbox",
-    "--window-size=3840,2160",
-    `--user-data-dir=${profile}`,
-    "about:blank",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] }
-);
-
-let stdout = "";
-let stderr = "";
-chrome.stdout.on("data", (chunk) => {
-  stdout += chunk;
-});
-chrome.stderr.on("data", (chunk) => {
-  stderr += chunk;
-});
-
-try {
-  const browserWsUrl = await waitForDevtoolsEndpoint();
-  const results = await checkLayouts(browserWsUrl);
-  for (const result of results) {
-    console.log(
-      `- ${result.label}: canvas ${result.canvasClientWidth}x${result.canvasClientHeight}, ` +
-        `grid ${Math.round(result.pianoGridWidth)}x${Math.round(result.pianoGridHeight)}, ` +
-        `piano ${Math.round(result.pianoRollHeight)} high, ` +
-        `text ${result.textAuditCount}`
-    );
+  if (!url) {
+    console.error("usage: scripts/check-web-layout.mjs <url>");
+    process.exit(2);
   }
-  console.log(`Orbifold web layout checks passed for ${url}`);
-} catch (error) {
-  console.error(`Orbifold web layout check failed: ${error.message ?? error}`);
-  process.exitCode = 1;
-} finally {
-  await terminateChrome(chrome);
-  await removePath(profile);
+
+  if (typeof WebSocket !== "function") {
+    console.error("Node.js with a global WebSocket implementation is required.");
+    process.exit(2);
+  }
+
+  chromePath = findChrome();
+  if (!chromePath) {
+    console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
+    process.exit(2);
+  }
+
+  const profile = fs.mkdtempSync(`${os.tmpdir()}/orbifold-web-layout-`);
+  const chrome = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--remote-debugging-port=0",
+      "--enable-unsafe-webgpu",
+      "--ignore-gpu-blocklist",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-sandbox",
+      "--window-size=3840,2160",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  stdout = "";
+  stderr = "";
+  chrome.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  chrome.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const browserWsUrl = await waitForDevtoolsEndpoint();
+    const results = await checkLayouts(browserWsUrl);
+    for (const result of results) {
+      console.log(
+        `- ${result.label}: canvas ${result.canvasClientWidth}x${result.canvasClientHeight}, ` +
+          `grid ${Math.round(result.pianoGridWidth)}x${Math.round(result.pianoGridHeight)}, ` +
+          `piano ${Math.round(result.pianoRollHeight)} high, ` +
+          `text ${result.textAuditCount}`
+      );
+    }
+    console.log(`Orbifold web layout checks passed for ${url}`);
+  } catch (error) {
+    console.error(`Orbifold web layout check failed: ${error.message ?? error}`);
+    process.exitCode = 1;
+  } finally {
+    await terminateChrome(chrome);
+    await removePath(profile);
+  }
 }
 
 function numberFromEnv(name, fallback) {
@@ -218,7 +230,7 @@ async function checkViewport(send, sessionId, viewport) {
   return { label: viewport.label, ...state };
 }
 
-function urlForViewport(targetUrl, label) {
+export function urlForViewport(targetUrl, label) {
   const parsed = new URL(targetUrl);
   parsed.searchParams.set("orbifold_layout", label);
   return parsed.href;
@@ -240,7 +252,7 @@ async function waitForReadyState(send, sessionId, viewport) {
   throw new Error(`${viewport.label} did not become layout-ready: ${JSON.stringify(state)}`);
 }
 
-function isReadyForLayoutCheck(state, viewport) {
+export function isReadyForLayoutCheck(state, viewport) {
   const className = String(state.className ?? "");
   const dpr = viewport.deviceScaleFactor;
   return (
@@ -309,7 +321,7 @@ async function evaluateWebState(send, sessionId) {
   return result.result.value ?? {};
 }
 
-function layoutFailures(state, viewport) {
+export function layoutFailures(state, viewport) {
   const failures = [];
   const dpr = viewport.deviceScaleFactor;
   const expectedCanvasWidth = viewport.width * dpr;
@@ -405,7 +417,7 @@ function summarizeEvent(message, requestUrls) {
   };
 }
 
-function browserFailures(events) {
+export function browserFailures(events) {
   const failures = [];
   for (const event of events) {
     if (event.method === "Runtime.exceptionThrown") {
@@ -451,4 +463,8 @@ async function removePath(targetPath) {
   } catch {
     // Temporary browser profile cleanup is best-effort.
   }
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

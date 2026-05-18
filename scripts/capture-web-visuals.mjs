@@ -5,13 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const args = process.argv.slice(2);
-const parsedArgs = parseArgs(args);
-const target = parsedArgs.target;
-const outDir = parsedArgs.outDir;
-const timeoutMs = numberFromEnv("ORBIFOLD_WEB_VISUAL_TIMEOUT_MS", 20_000);
-const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let target = "";
+let outDir = "screenshots/web";
+let timeoutMs = numberFromEnv("ORBIFOLD_WEB_VISUAL_TIMEOUT_MS", 20_000);
+let devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let chromePath = "";
+let runDir = "";
+let stdout = "";
+let stderr = "";
 
 const viewports = [
   { label: "compact-1200x760", width: 1200, height: 760, deviceScaleFactor: 1 },
@@ -20,78 +23,88 @@ const viewports = [
   { label: "wide-3840x2160", width: 3840, height: 2160, deviceScaleFactor: 1 },
 ];
 
-if (!target) {
-  console.error("usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]");
-  process.exit(2);
+if (isCliEntrypoint()) {
+  await runVisualCaptureCli(process.argv.slice(2));
 }
 
-if (typeof WebSocket !== "function") {
-  console.error("Node.js with a global WebSocket implementation is required.");
-  process.exit(2);
-}
+async function runVisualCaptureCli(args) {
+  const parsedArgs = parseArgs(args);
+  target = parsedArgs.target;
+  outDir = parsedArgs.outDir;
 
-const chromePath = findChrome();
-if (!chromePath) {
-  console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
-  process.exit(2);
-}
-
-const runDir = path.join(outDir, timestampForPath());
-fs.mkdirSync(runDir, { recursive: true });
-
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-visuals-"));
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--remote-debugging-port=0",
-    "--enable-unsafe-webgpu",
-    "--ignore-gpu-blocklist",
-    "--disable-dev-shm-usage",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--no-sandbox",
-    "--window-size=3840,2160",
-    `--user-data-dir=${profile}`,
-    "about:blank",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] }
-);
-
-let stdout = "";
-let stderr = "";
-chrome.stdout.on("data", (chunk) => {
-  stdout += chunk;
-});
-chrome.stderr.on("data", (chunk) => {
-  stderr += chunk;
-});
-
-try {
-  const browserWsUrl = await waitForDevtoolsEndpoint();
-  const result = await captureVisuals(browserWsUrl);
-  result.failures = visualCaptureFailures(result.events);
-  const manifestPath = path.join(runDir, "manifest.json");
-  fs.writeFileSync(manifestPath, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(`Orbifold web visual captures wrote ${runDir}`);
-  for (const capture of result.captures) {
-    console.log(`- ${capture.label}: ${capture.screenshot ?? capture.snapshot}`);
+  if (!target) {
+    console.error("usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]");
+    process.exit(2);
   }
-  console.log(`- manifest: ${manifestPath}`);
-  if (result.failures.length > 0) {
-    throw new Error(
-      `browser errors were recorded during visual capture: ${result.failures.join("; ")}`
-    );
+
+  if (typeof WebSocket !== "function") {
+    console.error("Node.js with a global WebSocket implementation is required.");
+    process.exit(2);
   }
-} catch (error) {
-  console.error(`Orbifold web visual capture failed: ${error.message ?? error}`);
-  process.exitCode = 1;
-} finally {
-  await terminateChrome(chrome);
-  await removePath(profile);
+
+  chromePath = findChrome();
+  if (!chromePath) {
+    console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
+    process.exit(2);
+  }
+
+  runDir = path.join(outDir, timestampForPath());
+  fs.mkdirSync(runDir, { recursive: true });
+
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-visuals-"));
+  const chrome = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--remote-debugging-port=0",
+      "--enable-unsafe-webgpu",
+      "--ignore-gpu-blocklist",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-sandbox",
+      "--window-size=3840,2160",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  stdout = "";
+  stderr = "";
+  chrome.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  chrome.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const browserWsUrl = await waitForDevtoolsEndpoint();
+    const result = await captureVisuals(browserWsUrl);
+    result.failures = visualCaptureFailures(result.events);
+    const manifestPath = path.join(runDir, "manifest.json");
+    fs.writeFileSync(manifestPath, `${JSON.stringify(result, null, 2)}\n`);
+    console.log(`Orbifold web visual captures wrote ${runDir}`);
+    for (const capture of result.captures) {
+      console.log(`- ${capture.label}: ${capture.screenshot ?? capture.snapshot}`);
+    }
+    console.log(`- manifest: ${manifestPath}`);
+    if (result.failures.length > 0) {
+      throw new Error(
+        `browser errors were recorded during visual capture: ${result.failures.join("; ")}`
+      );
+    }
+  } catch (error) {
+    console.error(`Orbifold web visual capture failed: ${error.message ?? error}`);
+    process.exitCode = 1;
+  } finally {
+    await terminateChrome(chrome);
+    await removePath(profile);
+  }
 }
 
-function parseArgs(rawArgs) {
+export function parseArgs(rawArgs) {
   let parsedTarget = "";
   let parsedOutDir = "screenshots/web";
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -118,7 +131,7 @@ function numberFromEnv(name, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function timestampForPath() {
+export function timestampForPath() {
   return new Date().toISOString().replace(/\.\d+Z$/, "Z").replace(/[:]/g, "");
 }
 
@@ -316,11 +329,11 @@ async function captureScreenshotAttempts(send, sessionId) {
   return attempts;
 }
 
-function summarizeScreenshotAttempts(attempts) {
+export function summarizeScreenshotAttempts(attempts) {
   return attempts.map(({ bytes: _bytes, ...attempt }) => attempt);
 }
 
-function screenshotFallbackReason(imageStats) {
+export function screenshotFallbackReason(imageStats) {
   if (!imageStats) {
     return "screenshot statistics unavailable";
   }
@@ -333,7 +346,7 @@ function screenshotFallbackReason(imageStats) {
   return "screenshot could not be used as visual evidence";
 }
 
-function urlForViewport(url, label) {
+export function urlForViewport(url, label) {
   const parsed = new URL(url);
   parsed.searchParams.set("orbifold_visual", label);
   return parsed.href;
@@ -355,7 +368,7 @@ async function waitForReadyState(send, sessionId, viewport) {
   throw new Error(`${viewport.label} did not become capture-ready: ${JSON.stringify(state)}`);
 }
 
-function isReadyForCapture(state, viewport) {
+export function isReadyForCapture(state, viewport) {
   const className = String(state.className ?? "");
   const dpr = viewport.deviceScaleFactor;
   const minClientWidth = viewport.width - 2;
@@ -477,7 +490,7 @@ function summarizeEvent(message, requestUrls) {
   };
 }
 
-function visualCaptureFailures(events) {
+export function visualCaptureFailures(events) {
   const failures = [];
   for (const event of events) {
     if (event.method === "Runtime.exceptionThrown") {
@@ -500,7 +513,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function pngStats(bytes) {
+export function pngStats(bytes) {
   const signature = "89504e470d0a1a0a";
   if (bytes.subarray(0, 8).toString("hex") !== signature) {
     return null;
@@ -655,4 +668,8 @@ async function removePath(targetPath) {
   } catch {
     // Temporary browser profile cleanup is best-effort.
   }
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

@@ -103,6 +103,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
         "node scripts/test-web-parity-gate.mjs",
+        "node scripts/test-web-visual-layout-helpers.mjs",
         "cargo clippy --all-targets -- -D warnings",
     ] {
         assert!(
@@ -115,6 +116,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
 #[test]
 fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
     let script = include_str!("../scripts/check-web-layout.mjs");
+    let behavior_test = include_str!("../scripts/test-web-visual-layout-helpers.mjs");
     let readme = include_str!("../README.md");
     let audit = include_str!("../docs/web_parity_audit.md");
     let checklist = include_str!("../docs/manual_qa_checklist.md");
@@ -125,6 +127,11 @@ fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",
+        "isCliEntrypoint",
+        "export function urlForViewport",
+        "export function isReadyForLayoutCheck",
+        "export function layoutFailures",
+        "export function browserFailures",
         "compact-1200x760",
         "desktop-1600x1000",
         "hidpi-1920x1080-dpr2",
@@ -158,6 +165,20 @@ fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
         assert!(
             script.contains(required),
             "scripts/check-web-layout.mjs should verify browser layout geometry: {required}"
+        );
+    }
+
+    for required in [
+        "layoutFailures(goodLayout, viewport)",
+        "isReadyForLayoutCheck(goodLayout, viewport)",
+        "canvasClientWidth 400 < 1598",
+        "textAuditSampleIssue top bar overlap",
+        "browserFailures([",
+        "web visual layout helper behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-visual-layout-helpers.mjs should behavior-test {required}"
         );
     }
 
@@ -212,6 +233,7 @@ fn web_dist_check_script_verifies_pages_artifact_shape() {
 #[test]
 fn web_visual_capture_script_records_browser_layout_evidence() {
     let script = include_str!("../scripts/capture-web-visuals.mjs");
+    let behavior_test = include_str!("../scripts/test-web-visual-layout-helpers.mjs");
     let readme = include_str!("../README.md");
     let audit = include_str!("../docs/web_parity_audit.md");
     let checklist = include_str!("../docs/manual_qa_checklist.md");
@@ -222,6 +244,13 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",
+        "isCliEntrypoint",
+        "export function parseArgs",
+        "export function timestampForPath",
+        "export function screenshotFallbackReason",
+        "export function isReadyForCapture",
+        "export function visualCaptureFailures",
+        "export function pngStats",
         "compact-1200x760",
         "desktop-1600x1000",
         "hidpi-1920x1080-dpr2",
@@ -260,6 +289,22 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
         assert!(
             script.contains(required),
             "scripts/capture-web-visuals.mjs should capture web visual parity evidence: {required}"
+        );
+    }
+
+    for required in [
+        "parseVisualArgs([\"https://example.invalid/Orbifold\"])",
+        "timestampForPath()",
+        "isReadyForCapture(captureState, viewport)",
+        "screenshotFallbackReason(null)",
+        "pngStats(",
+        "makeRgbaPng(2, 1",
+        "visualCaptureFailures([",
+        "web visual layout helper behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-visual-layout-helpers.mjs should behavior-test {required}"
         );
     }
 
