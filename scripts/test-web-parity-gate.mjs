@@ -11,7 +11,7 @@ import { compareWebArtifactFingerprints } from "./web-artifact-fingerprint.mjs";
 assert.deepEqual(parseParityGateArgs(["https://example.invalid/Orbifold"]), {
   url: "https://example.invalid/Orbifold",
   report: "reports",
-  visualOut: "screenshots/web-parity",
+  visualOut: "reports/web-visuals",
   skipVisualCapture: false,
 });
 
@@ -33,6 +33,18 @@ assert.deepEqual(
 
 assert.throws(() => parseParityGateArgs(["https://example.invalid/Orbifold/", "--bogus"]), {
   message: /Unknown argument: --bogus/,
+});
+assert.throws(() => parseParityGateArgs(["https://example.invalid/Orbifold/", "--report"]), {
+  message: /--report requires a value/,
+});
+assert.throws(() => parseParityGateArgs(["https://example.invalid/Orbifold/", "--report="]), {
+  message: /--report requires a value/,
+});
+assert.throws(() => parseParityGateArgs(["https://example.invalid/Orbifold/", "--visual-out"]), {
+  message: /--visual-out requires a value/,
+});
+assert.throws(() => parseParityGateArgs(["https://example.invalid/Orbifold/", "--visual-out="]), {
+  message: /--visual-out requires a value/,
 });
 
 assert.equal(

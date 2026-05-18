@@ -18,7 +18,7 @@ if (isCliEntrypoint()) {
   const options = parseParityGateArgs(process.argv.slice(2));
   if (!options.url) {
     console.error(
-      "usage: scripts/check-web-parity-gate.mjs <https://pages-url/> [--report reports] [--visual-out screenshots/web-parity] [--skip-visual-capture]"
+      "usage: scripts/check-web-parity-gate.mjs <https://pages-url/> [--report reports] [--visual-out reports/web-visuals] [--skip-visual-capture]"
     );
     process.exit(2);
   }
@@ -67,19 +67,35 @@ export function parseParityGateArgs(args) {
   const parsed = {
     url: "",
     report: "reports",
-    visualOut: "screenshots/web-parity",
+    visualOut: "reports/web-visuals",
     skipVisualCapture: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--report") {
-      parsed.report = args[++index] ?? parsed.report;
+      const value = args[++index];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--report requires a value");
+      }
+      parsed.report = value;
     } else if (arg.startsWith("--report=")) {
-      parsed.report = arg.slice("--report=".length);
+      const value = arg.slice("--report=".length);
+      if (!value) {
+        throw new Error("--report requires a value");
+      }
+      parsed.report = value;
     } else if (arg === "--visual-out") {
-      parsed.visualOut = args[++index] ?? parsed.visualOut;
+      const value = args[++index];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--visual-out requires a value");
+      }
+      parsed.visualOut = value;
     } else if (arg.startsWith("--visual-out=")) {
-      parsed.visualOut = arg.slice("--visual-out=".length);
+      const value = arg.slice("--visual-out=".length);
+      if (!value) {
+        throw new Error("--visual-out requires a value");
+      }
+      parsed.visualOut = value;
     } else if (arg === "--skip-visual-capture") {
       parsed.skipVisualCapture = true;
     } else if (arg === "--help" || arg === "-h") {

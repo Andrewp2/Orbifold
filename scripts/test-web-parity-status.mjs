@@ -198,7 +198,7 @@ function validGateReport(sourceManualReport, visualRunDir, manifestPath) {
     targetUrl: sourceManualReport.targetUrl,
     manualReport: "reports",
     manualReportPath: "web-manual-devices-2026-05-18T120000Z.json",
-    visualOut: "screenshots/web-parity",
+    visualOut: "reports/web-visuals",
     skippedVisualCapture: false,
     passed: true,
     liveArtifact: structuredClone(sourceManualReport.artifact),

@@ -183,7 +183,7 @@ function validGateReport(sourceManualReport) {
     targetUrl: sourceManualReport.targetUrl,
     manualReport: "reports",
     manualReportPath: "reports/web-manual-devices-2026-05-18T120000Z.json",
-    visualOut: "screenshots/web-parity",
+    visualOut: "reports/web-visuals",
     skippedVisualCapture: false,
     passed: true,
     liveArtifact: structuredClone(sourceManualReport.artifact),
