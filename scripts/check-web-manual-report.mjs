@@ -56,6 +56,12 @@ export function validateManualDeviceReport(report) {
   requireArray(report.checks, "checks");
   requireArray(report.clicks, "clicks");
   requireArray(report.browserEvents, "browserEvents");
+  const browserFailures = manualReportBrowserFailures(report.browserEvents);
+  if (browserFailures.length > 0) {
+    throw new Error(
+      `browserEvents should not contain runtime errors: ${browserFailures.join("; ")}`
+    );
+  }
   requireObject(report.host, "host");
   requireTruthy(report.host.platform, "host.platform");
   requireTruthy(report.host.arch, "host.arch");
@@ -236,6 +242,32 @@ function requireNoError(data) {
   if (data.error) {
     throw new Error(`report contains error: ${data.error}`);
   }
+}
+
+function manualReportBrowserFailures(events) {
+  const failures = [];
+  for (const event of events) {
+    if (event.method === "Runtime.exceptionThrown") {
+      failures.push(`exception: ${event.params?.exceptionDetails?.text ?? "unknown"}`);
+    } else if (
+      event.method === "Runtime.consoleAPICalled" &&
+      ["error", "assert"].includes(event.params?.type)
+    ) {
+      failures.push(`console ${event.params.type}: ${consoleArgs(event.params.args ?? [])}`);
+    } else if (event.method === "Network.loadingFailed") {
+      failures.push(`network load failed: ${event.url ?? event.params?.errorText ?? "unknown"}`);
+    } else if (
+      event.method === "Log.entryAdded" &&
+      event.params?.entry?.level === "error"
+    ) {
+      failures.push(`browser log error: ${event.params.entry.text}`);
+    }
+  }
+  return failures;
+}
+
+function consoleArgs(args) {
+  return args.map((arg) => arg.value ?? arg.description ?? arg.type ?? "").join(" ");
 }
 
 function requireArray(value, label) {
