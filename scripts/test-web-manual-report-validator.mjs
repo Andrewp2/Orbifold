@@ -121,16 +121,82 @@ assertRejects(
 
 assertRejects(
   withChange(report, (draft) => {
-    draft.checks.find((check) => check.name === "manualShortcutParity").evidence.lastAction = "";
+    draft.checks.find(
+      (check) => check.name === "manualShortcutParity"
+    ).evidence.requiredWorkflows = ["transport", "editing", "file", "help"];
   }),
-  "manualShortcutParity.lastAction should be present"
+  "manualShortcutParity.requiredWorkflows should include uiZoom"
 );
 
 assertRejects(
   withChange(report, (draft) => {
-    draft.checks.find((check) => check.name === "manualPianoRollParity").evidence.pianoGridWidth = 0;
+    const evidence = draft.checks.find((check) => check.name === "manualShortcutParity").evidence;
+    evidence.after = structuredClone(evidence.before);
+    evidence.after.lastAction = "ui.scale_up";
   }),
-  "manualPianoRollParity.pianoGridWidth should be a positive number"
+  "manualShortcutParity evidence should show a concrete shortcut state change"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualShortcutParity"
+    ).evidence.after.lastAction = "";
+  }),
+  "manualShortcutParity.after.lastAction should be present"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualPianoRollParity"
+    ).evidence.requiredWorkflows = ["noteEdit", "velocityEdit", "scrollOrZoom", "seekOrLoop"];
+  }),
+  "manualPianoRollParity.requiredWorkflows should include panelResize"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualPianoRollParity").evidence;
+    evidence.after.project = evidence.before.project;
+  }),
+  "manualPianoRollParity evidence should show a note or velocity edit"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualPianoRollParity").evidence;
+    evidence.after.pianoViewStart = evidence.before.pianoViewStart;
+    evidence.after.pianoViewBeats = evidence.before.pianoViewBeats;
+  }),
+  "manualPianoRollParity evidence should show piano scroll or zoom"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualPianoRollParity").evidence;
+    evidence.after.transportPositionBeats = evidence.before.transportPositionBeats;
+    evidence.after.loopBeats = evidence.before.loopBeats;
+  }),
+  "manualPianoRollParity evidence should show seek or loop-boundary movement"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    const evidence = draft.checks.find((check) => check.name === "manualPianoRollParity").evidence;
+    evidence.after.pianoRollHeight = evidence.before.pianoRollHeight;
+    evidence.after.rightPanelWidth = evidence.before.rightPanelWidth;
+  }),
+  "manualPianoRollParity evidence should show workspace panel resizing"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find(
+      (check) => check.name === "manualPianoRollParity"
+    ).evidence.after.pianoGridWidth = 0;
+  }),
+  "manualPianoRollParity.after.pianoGridWidth should be a positive number"
 );
 
 console.log("manual web device report validator behavior ok");
@@ -200,21 +266,62 @@ function validManualReport() {
     name: "manualShortcutParity",
     pass: true,
     evidence: {
-      lastAction: "ui.scale_up",
-      noteCount: 3,
-      uiScale: 1.1,
+      requiredWorkflows: ["transport", "editing", "file", "help", "uiZoom"],
+      before: {
+        frameCount: 10,
+        lastAction: "file.save",
+        lastStatus: "Saved project",
+        noteCount: 3,
+        transportPlaying: false,
+        uiScale: 1,
+        downloadFileName: "project.orbifold",
+        downloadSize: 128,
+        project: "orbifold_project=1\nnote\t1\t0\t0.25\t0\t60\t0\t60\t100\n",
+      },
+      after: {
+        frameCount: 11,
+        lastAction: "ui.scale_up",
+        lastStatus: "UI scale 110%",
+        noteCount: 3,
+        transportPlaying: false,
+        uiScale: 1.1,
+        downloadFileName: "project.orbifold",
+        downloadSize: 128,
+        project: "orbifold_project=1\nnote\t1\t0\t0.25\t0\t60\t0\t60\t100\n",
+      },
     },
   });
   checks.push({
     name: "manualPianoRollParity",
     pass: true,
     evidence: {
-      noteCount: 3,
-      pianoViewBeats: 16,
-      pianoGridWidth: 800,
-      pianoGridHeight: 420,
-      pianoRollHeight: 500,
-      rightPanelWidth: 300,
+      requiredWorkflows: ["noteEdit", "velocityEdit", "scrollOrZoom", "seekOrLoop", "panelResize"],
+      before: {
+        frameCount: 12,
+        noteCount: 3,
+        project: "orbifold_project=1\nnote\t1\t0\t0.25\t0\t60\t0\t60\t100\n",
+        transportPositionBeats: 0,
+        loopBeats: 16,
+        pianoViewStart: 0,
+        pianoViewBeats: 16,
+        pianoGridWidth: 800,
+        pianoGridHeight: 420,
+        pianoRollHeight: 500,
+        rightPanelWidth: 300,
+      },
+      after: {
+        frameCount: 13,
+        noteCount: 4,
+        project: "orbifold_project=1\nnote\t1\t1\t0.5\t0\t60\t0\t60\t80\n",
+        transportPositionBeats: 2,
+        loopBeats: 12,
+        pianoViewStart: 1,
+        pianoViewBeats: 8,
+        pianoGridWidth: 800,
+        pianoGridHeight: 420,
+        pianoRollHeight: 560,
+        rightPanelWidth: 340,
+      },
     },
   });
 
@@ -297,11 +404,17 @@ function validManualReport() {
       afterBrowserFileFlows: {
         frameCount: 10,
       },
+      beforeShortcutParity: {
+        frameCount: 10,
+      },
       afterShortcutParity: {
         frameCount: 11,
       },
-      afterPianoRollParity: {
+      beforePianoRollParity: {
         frameCount: 12,
+      },
+      afterPianoRollParity: {
+        frameCount: 13,
       },
     },
   };

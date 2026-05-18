@@ -274,28 +274,145 @@ export function validateManualDeviceReport(report) {
   requireTruthy(browserFileEvidence.lumatonePath, "manualBrowserFileFlows.lumatonePath");
   requireEqual(browserFileEvidence.lumatoneLoaded, true, "manualBrowserFileFlows.lumatoneLoaded");
 
+  requireObject(report.states.beforeShortcutParity, "states.beforeShortcutParity");
   requireObject(report.states.afterShortcutParity, "states.afterShortcutParity");
   requirePositiveNumber(
     report.states.afterShortcutParity.frameCount,
     "states.afterShortcutParity.frameCount"
   );
   const shortcutEvidence = requirePassedCheckEvidence("manualShortcutParity");
-  requireTruthy(shortcutEvidence.lastAction, "manualShortcutParity.lastAction");
-  requirePositiveNumber(shortcutEvidence.noteCount, "manualShortcutParity.noteCount");
-  requirePositiveNumber(shortcutEvidence.uiScale, "manualShortcutParity.uiScale");
+  requireRequiredWorkflows(shortcutEvidence, "manualShortcutParity", [
+    "transport",
+    "editing",
+    "file",
+    "help",
+    "uiZoom",
+  ]);
+  requireObject(shortcutEvidence.before, "manualShortcutParity.before");
+  requireObject(shortcutEvidence.after, "manualShortcutParity.after");
+  requireFiniteNumber(shortcutEvidence.before.noteCount, "manualShortcutParity.before.noteCount");
+  requirePositiveNumber(shortcutEvidence.before.uiScale, "manualShortcutParity.before.uiScale");
+  requireFiniteNumber(
+    shortcutEvidence.before.downloadSize,
+    "manualShortcutParity.before.downloadSize"
+  );
+  requireTruthy(shortcutEvidence.before.project, "manualShortcutParity.before.project");
+  requireTruthy(shortcutEvidence.after.lastAction, "manualShortcutParity.after.lastAction");
+  requirePositiveNumber(shortcutEvidence.after.noteCount, "manualShortcutParity.after.noteCount");
+  requirePositiveNumber(shortcutEvidence.after.uiScale, "manualShortcutParity.after.uiScale");
+  requireFiniteNumber(
+    shortcutEvidence.after.downloadSize,
+    "manualShortcutParity.after.downloadSize"
+  );
+  requireTruthy(shortcutEvidence.after.project, "manualShortcutParity.after.project");
+  if (!shortcutEvidenceHasConcreteChange(shortcutEvidence.before, shortcutEvidence.after)) {
+    throw new Error(
+      "manualShortcutParity evidence should show a concrete shortcut state change"
+    );
+  }
 
+  requireObject(report.states.beforePianoRollParity, "states.beforePianoRollParity");
   requireObject(report.states.afterPianoRollParity, "states.afterPianoRollParity");
   requirePositiveNumber(
     report.states.afterPianoRollParity.frameCount,
     "states.afterPianoRollParity.frameCount"
   );
   const pianoEvidence = requirePassedCheckEvidence("manualPianoRollParity");
-  requirePositiveNumber(pianoEvidence.noteCount, "manualPianoRollParity.noteCount");
-  requirePositiveNumber(pianoEvidence.pianoViewBeats, "manualPianoRollParity.pianoViewBeats");
-  requirePositiveNumber(pianoEvidence.pianoGridWidth, "manualPianoRollParity.pianoGridWidth");
-  requirePositiveNumber(pianoEvidence.pianoGridHeight, "manualPianoRollParity.pianoGridHeight");
-  requirePositiveNumber(pianoEvidence.pianoRollHeight, "manualPianoRollParity.pianoRollHeight");
-  requirePositiveNumber(pianoEvidence.rightPanelWidth, "manualPianoRollParity.rightPanelWidth");
+  requireRequiredWorkflows(pianoEvidence, "manualPianoRollParity", [
+    "noteEdit",
+    "velocityEdit",
+    "scrollOrZoom",
+    "seekOrLoop",
+    "panelResize",
+  ]);
+  requireObject(pianoEvidence.before, "manualPianoRollParity.before");
+  requireObject(pianoEvidence.after, "manualPianoRollParity.after");
+  requireFiniteNumber(pianoEvidence.before.noteCount, "manualPianoRollParity.before.noteCount");
+  requireTruthy(pianoEvidence.before.project, "manualPianoRollParity.before.project");
+  requireFiniteNumber(
+    pianoEvidence.before.transportPositionBeats,
+    "manualPianoRollParity.before.transportPositionBeats"
+  );
+  requirePositiveNumber(pianoEvidence.before.loopBeats, "manualPianoRollParity.before.loopBeats");
+  requireFiniteNumber(
+    pianoEvidence.before.pianoViewStart,
+    "manualPianoRollParity.before.pianoViewStart"
+  );
+  requirePositiveNumber(
+    pianoEvidence.before.pianoViewBeats,
+    "manualPianoRollParity.before.pianoViewBeats"
+  );
+  requirePositiveNumber(
+    pianoEvidence.before.pianoGridWidth,
+    "manualPianoRollParity.before.pianoGridWidth"
+  );
+  requirePositiveNumber(
+    pianoEvidence.before.pianoGridHeight,
+    "manualPianoRollParity.before.pianoGridHeight"
+  );
+  requirePositiveNumber(
+    pianoEvidence.before.pianoRollHeight,
+    "manualPianoRollParity.before.pianoRollHeight"
+  );
+  requirePositiveNumber(
+    pianoEvidence.before.rightPanelWidth,
+    "manualPianoRollParity.before.rightPanelWidth"
+  );
+  requirePositiveNumber(pianoEvidence.after.noteCount, "manualPianoRollParity.after.noteCount");
+  requireTruthy(pianoEvidence.after.project, "manualPianoRollParity.after.project");
+  requireFiniteNumber(
+    pianoEvidence.after.transportPositionBeats,
+    "manualPianoRollParity.after.transportPositionBeats"
+  );
+  requirePositiveNumber(pianoEvidence.after.loopBeats, "manualPianoRollParity.after.loopBeats");
+  requireFiniteNumber(
+    pianoEvidence.after.pianoViewStart,
+    "manualPianoRollParity.after.pianoViewStart"
+  );
+  requirePositiveNumber(
+    pianoEvidence.after.pianoViewBeats,
+    "manualPianoRollParity.after.pianoViewBeats"
+  );
+  requirePositiveNumber(
+    pianoEvidence.after.pianoGridWidth,
+    "manualPianoRollParity.after.pianoGridWidth"
+  );
+  requirePositiveNumber(
+    pianoEvidence.after.pianoGridHeight,
+    "manualPianoRollParity.after.pianoGridHeight"
+  );
+  requirePositiveNumber(
+    pianoEvidence.after.pianoRollHeight,
+    "manualPianoRollParity.after.pianoRollHeight"
+  );
+  requirePositiveNumber(
+    pianoEvidence.after.rightPanelWidth,
+    "manualPianoRollParity.after.rightPanelWidth"
+  );
+  if (String(pianoEvidence.before.project) === String(pianoEvidence.after.project)) {
+    throw new Error("manualPianoRollParity evidence should show a note or velocity edit");
+  }
+  if (
+    nearlyEqual(pianoEvidence.before.pianoViewStart, pianoEvidence.after.pianoViewStart) &&
+    nearlyEqual(pianoEvidence.before.pianoViewBeats, pianoEvidence.after.pianoViewBeats)
+  ) {
+    throw new Error("manualPianoRollParity evidence should show piano scroll or zoom");
+  }
+  if (
+    nearlyEqual(
+      pianoEvidence.before.transportPositionBeats,
+      pianoEvidence.after.transportPositionBeats
+    ) &&
+    nearlyEqual(pianoEvidence.before.loopBeats, pianoEvidence.after.loopBeats)
+  ) {
+    throw new Error("manualPianoRollParity evidence should show seek or loop-boundary movement");
+  }
+  if (
+    nearlyEqual(pianoEvidence.before.pianoRollHeight, pianoEvidence.after.pianoRollHeight) &&
+    nearlyEqual(pianoEvidence.before.rightPanelWidth, pianoEvidence.after.rightPanelWidth)
+  ) {
+    throw new Error("manualPianoRollParity evidence should show workspace panel resizing");
+  }
 }
 
 export async function resolveReportPath(targetPath) {
@@ -365,6 +482,29 @@ function requireObject(value, label) {
   }
 }
 
+function requireRequiredWorkflows(evidence, label, requiredWorkflows) {
+  requireArray(evidence.requiredWorkflows, `${label}.requiredWorkflows`);
+  for (const workflow of requiredWorkflows) {
+    if (!evidence.requiredWorkflows.includes(workflow)) {
+      throw new Error(`${label}.requiredWorkflows should include ${workflow}`);
+    }
+  }
+}
+
+function shortcutEvidenceHasConcreteChange(before, after) {
+  return (
+    Number(before.noteCount) !== Number(after.noteCount) ||
+    String(before.project ?? "") !== String(after.project ?? "") ||
+    Boolean(before.transportPlaying) !== Boolean(after.transportPlaying) ||
+    !nearlyEqual(before.uiScale, after.uiScale) ||
+    Number(after.downloadSize) > Number(before.downloadSize ?? 0)
+  );
+}
+
+function nearlyEqual(left, right) {
+  return Math.abs(Number(left) - Number(right)) < 0.0001;
+}
+
 function requireTruthy(value, label) {
   if (!value) {
     throw new Error(`${label} should be present`);
@@ -380,6 +520,12 @@ function requireEqual(actual, expected, label) {
 function requirePositiveNumber(value, label) {
   if (!(Number(value) > 0)) {
     throw new Error(`${label} should be a positive number, got ${JSON.stringify(value)}`);
+  }
+}
+
+function requireFiniteNumber(value, label) {
+  if (!Number.isFinite(Number(value))) {
+    throw new Error(`${label} should be a finite number, got ${JSON.stringify(value)}`);
   }
 }
 

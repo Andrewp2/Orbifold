@@ -299,22 +299,22 @@ async function runManualDeviceCheck() {
     downloadSize: report.states.afterBrowserFileFlows.downloadSize,
   });
 
+  report.states.beforeShortcutParity = await evaluateProjectState();
   await promptEnter(
-    "Spot-check browser shortcuts against native behavior for transport, editing, file commands, help, and UI zoom. Press Enter when finished."
+    "Spot-check browser shortcuts against native behavior for transport, editing, file commands, help, and UI zoom. Leave at least one concrete browser shortcut change visible, such as a note edit, project download, transport toggle, or UI scale change. Press Enter when finished."
   );
   report.states.afterShortcutParity = await evaluateProjectState();
   const shortcutParity = await confirm("Did the browser keyboard shortcuts match native behavior?");
   report.userConfirmations.shortcutParity = shortcutParity;
   addCheck("manualShortcutParity", shortcutParity, {
-    lastAction: report.states.afterShortcutParity.lastAction,
-    lastStatus: report.states.afterShortcutParity.lastStatus,
-    noteCount: report.states.afterShortcutParity.noteCount,
-    transportPlaying: report.states.afterShortcutParity.transportPlaying,
-    uiScale: report.states.afterShortcutParity.uiScale,
+    requiredWorkflows: ["transport", "editing", "file", "help", "uiZoom"],
+    before: pickShortcutParityEvidence(report.states.beforeShortcutParity),
+    after: pickShortcutParityEvidence(report.states.afterShortcutParity),
   });
 
+  report.states.beforePianoRollParity = await evaluateProjectState();
   await promptEnter(
-    "Compare browser and native piano-roll/workspace behavior: create, select, move, resize, velocity edit, scroll, zoom, seek, loop-boundary drag, and panel resizing. Press Enter when finished."
+    "Compare browser and native piano-roll/workspace behavior: create/select/move/resize a note, edit velocity, scroll or zoom the piano view, seek or drag a loop boundary, and resize the right or bottom workspace panel. Leave those browser changes visible. Press Enter when finished."
   );
   report.states.afterPianoRollParity = await evaluateProjectState();
   const pianoRollParity = await confirm(
@@ -322,15 +322,9 @@ async function runManualDeviceCheck() {
   );
   report.userConfirmations.pianoRollParity = pianoRollParity;
   addCheck("manualPianoRollParity", pianoRollParity, {
-    noteCount: report.states.afterPianoRollParity.noteCount,
-    transportPositionBeats: report.states.afterPianoRollParity.transportPositionBeats,
-    loopBeats: report.states.afterPianoRollParity.loopBeats,
-    pianoViewStart: report.states.afterPianoRollParity.pianoViewStart,
-    pianoViewBeats: report.states.afterPianoRollParity.pianoViewBeats,
-    pianoGridWidth: report.states.afterPianoRollParity.pianoGridWidth,
-    pianoGridHeight: report.states.afterPianoRollParity.pianoGridHeight,
-    pianoRollHeight: report.states.afterPianoRollParity.pianoRollHeight,
-    rightPanelWidth: report.states.afterPianoRollParity.rightPanelWidth,
+    requiredWorkflows: ["noteEdit", "velocityEdit", "scrollOrZoom", "seekOrLoop", "panelResize"],
+    before: pickPianoRollParityEvidence(report.states.beforePianoRollParity),
+    after: pickPianoRollParityEvidence(report.states.afterPianoRollParity),
   });
 
   const passed = report.checks.every((check) => check.pass);
@@ -793,6 +787,36 @@ function pickRuntimeEvidence(state) {
       devicePixelRatio: state.devicePixelRatio,
     },
     hasGpu: state.hasGpu,
+  };
+}
+
+function pickShortcutParityEvidence(state) {
+  return {
+    frameCount: state.frameCount,
+    lastAction: state.lastAction,
+    lastStatus: state.lastStatus,
+    noteCount: state.noteCount,
+    transportPlaying: state.transportPlaying,
+    uiScale: state.uiScale,
+    downloadFileName: state.downloadFileName,
+    downloadSize: state.downloadSize,
+    project: state.project,
+  };
+}
+
+function pickPianoRollParityEvidence(state) {
+  return {
+    frameCount: state.frameCount,
+    noteCount: state.noteCount,
+    project: state.project,
+    transportPositionBeats: state.transportPositionBeats,
+    loopBeats: state.loopBeats,
+    pianoViewStart: state.pianoViewStart,
+    pianoViewBeats: state.pianoViewBeats,
+    pianoGridWidth: state.pianoGridWidth,
+    pianoGridHeight: state.pianoGridHeight,
+    pianoRollHeight: state.pianoRollHeight,
+    rightPanelWidth: state.rightPanelWidth,
   };
 }
 
