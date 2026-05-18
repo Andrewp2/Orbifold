@@ -251,6 +251,10 @@ Progress since this gap list was first written:
 - Browser MIDI refresh now treats an empty input list as a successful no-device
   refresh, matching native setup behavior instead of reporting an error only
   because the browser returned zero inputs.
+- Browser MIDI connect now explicitly opens the selected `MIDIInput` when the
+  browser exposes `input.open()`, and publishes input state/connection
+  diagnostics for real-device validation instead of only relying on the message
+  handler assignment.
 - Asynchronous Web Audio resume and cleanup failures now queue into Orbifold's
   browser runtime and surface through the same visible error-status path as
   other device failures instead of remaining console-only messages.

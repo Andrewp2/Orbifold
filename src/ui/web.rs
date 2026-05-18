@@ -3134,6 +3134,12 @@ async function ensureMidiAccess() {
   }
   if (!orbifoldMidiAccess) {
     orbifoldMidiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    orbifoldMidiAccess.onstatechange = (event) => {
+      const port = event && event.port ? event.port : null;
+      document.body.dataset.orbifoldMidiStateChangeName = port ? midiInputName(port) : "";
+      document.body.dataset.orbifoldMidiStateChangeState = port && port.state ? String(port.state) : "";
+      document.body.dataset.orbifoldMidiStateChangeConnection = port && port.connection ? String(port.connection) : "";
+    };
   }
   return orbifoldMidiAccess;
 }
@@ -3148,7 +3154,9 @@ function midiInputName(input) {
 
 export async function request_midi_inputs_js() {
   const access = await ensureMidiAccess();
-  return midiInputs(access).map(midiInputName);
+  const names = midiInputs(access).map(midiInputName);
+  document.body.dataset.orbifoldBrowserMidiInputNames = names.join("\n");
+  return names;
 }
 
 export async function connect_midi_input_js(selectedName) {
@@ -3168,11 +3176,16 @@ export async function connect_midi_input_js(selectedName) {
     orbifoldMidiInput.onmidimessage = null;
     orbifoldMidiInput = null;
   }
+  if (typeof input.open === "function") {
+    await input.open();
+  }
   orbifoldMidiMessages = [];
   input.onmidimessage = (event) => {
     orbifoldMidiMessages.push(Array.from(event.data || []));
   };
   orbifoldMidiInput = input;
+  document.body.dataset.orbifoldMidiInputState = String(input.state || "");
+  document.body.dataset.orbifoldMidiInputConnection = String(input.connection || "");
   return midiInputName(input);
 }
 

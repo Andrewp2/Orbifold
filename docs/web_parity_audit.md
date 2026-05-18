@@ -72,8 +72,8 @@ The headless smoke currently covers:
   Scala/key-map resources, imported sample instrument, imported assets, and
   panel-visibility settings,
 - browser UI-scale action persistence and runtime reload,
-- deterministic Web MIDI refresh, connect, note-on, note-off, and recording
-  through a browser MIDI stub,
+- deterministic Web MIDI refresh, explicit `MIDIInput.open()` connection when
+  available, note-on, note-off, and recording through a browser MIDI stub,
 - Web Audio output discovery through the browser device APIs when sink
   selection is available, fallback `Browser audio` discovery when it is not,
   audio-context creation, processor attachment, optional sink-selection

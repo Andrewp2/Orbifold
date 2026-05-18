@@ -232,6 +232,10 @@ async function installMockMidiAccess(send, sessionId) {
           state: "connected",
           connection: "closed",
           onmidimessage: null,
+          open: async () => {
+            input.connection = "open";
+            return input;
+          },
         };
         const access = {
           inputs: new Map([[input.id, input]]),
@@ -876,7 +880,9 @@ async function verifyBrowserMidiFlow(send, sessionId) {
     send,
     sessionId,
     (state) =>
-      state.midiInputCount >= 1 && state.lastStatus.includes("Refreshed MIDI inputs: 1 MIDI input"),
+      state.midiInputCount >= 1 &&
+      state.browserMidiInputNames.includes("Orbifold Smoke MIDI") &&
+      state.lastStatus.includes("Refreshed MIDI inputs: 1 MIDI input"),
     "browser MIDI refresh did not list the mocked MIDI input"
   );
 
@@ -886,6 +892,7 @@ async function verifyBrowserMidiFlow(send, sessionId) {
     sessionId,
     (state) =>
       state.connectedMidiInput === "Orbifold Smoke MIDI" &&
+      state.midiInputConnection === "open" &&
       state.lastStatus.includes("Connected browser MIDI input: Orbifold Smoke MIDI"),
     "browser MIDI connect did not connect the mocked MIDI input"
   );
@@ -1598,6 +1605,9 @@ async function evaluateProjectState(send, sessionId) {
         assetCount: Number(document.body.dataset.orbifoldAudioAssetCount ?? 0),
         midiInputCount: Number(document.body.dataset.orbifoldMidiInputCount ?? 0),
         connectedMidiInput: document.body.dataset.orbifoldConnectedMidiInput ?? "",
+        browserMidiInputNames: document.body.dataset.orbifoldBrowserMidiInputNames ?? "",
+        midiInputState: document.body.dataset.orbifoldMidiInputState ?? "",
+        midiInputConnection: document.body.dataset.orbifoldMidiInputConnection ?? "",
         lastMidiStatus: Number(document.body.dataset.orbifoldLastMidiStatus ?? 0),
         lastMidiNote: Number(document.body.dataset.orbifoldLastMidiNote ?? -1),
         audioOutputCount: Number(document.body.dataset.orbifoldAudioOutputCount ?? 0),
