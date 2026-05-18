@@ -2,18 +2,7 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-
-const target = process.argv[2] ?? "reports";
-
-if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.error(
-    "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>"
-  );
-  process.exit(2);
-}
-
-const reportPath = await resolveReportPath(target);
-const report = JSON.parse(await readFile(reportPath, "utf8"));
+import { pathToFileURL } from "node:url";
 
 const requiredChecks = [
   "browserRuntimeReady",
@@ -38,130 +27,166 @@ const requiredClickCounts = {
   record: 2,
 };
 
-requireEqual(report.schema, "orbifold.web_manual_device_parity.v1", "schema");
-requireTruthy(report.generatedAt, "generatedAt");
-requireTruthy(report.targetUrl, "targetUrl");
-requireNoError(report);
-requireArray(report.checks, "checks");
-requireArray(report.clicks, "clicks");
-requireObject(report.states, "states");
-requireObject(report.userConfirmations, "userConfirmations");
-requireObject(report.chrome, "chrome");
-requireTruthy(report.chrome.version, "chrome.version");
+if (isCliEntrypoint()) {
+  const target = process.argv[2] ?? "reports";
 
-const checksByName = new Map(report.checks.map((check) => [check.name, check]));
-for (const name of requiredChecks) {
-  requirePassedCheck(name);
-}
-
-for (const [name, expectedCount] of Object.entries(requiredClickCounts)) {
-  const clicks = report.clicks.filter((click) => click.name === name);
-  if (clicks.length < expectedCount) {
-    throw new Error(`clicks.${name} expected at least ${expectedCount}, found ${clicks.length}`);
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.error(
+      "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>"
+    );
+    process.exit(2);
   }
-  for (const click of clicks) {
-    requirePositiveNumber(click.point?.x, `clicks.${name}.point.x`);
-    requirePositiveNumber(click.point?.y, `clicks.${name}.point.y`);
+
+  const reportPath = await resolveReportPath(target);
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
+  validateManualDeviceReport(report);
+  console.log(`manual web device report ok: ${reportPath}`);
+}
+
+export function validateManualDeviceReport(report) {
+  requireEqual(report.schema, "orbifold.web_manual_device_parity.v1", "schema");
+  requireTruthy(report.generatedAt, "generatedAt");
+  requireTruthy(report.targetUrl, "targetUrl");
+  requireNoError(report);
+  requireArray(report.checks, "checks");
+  requireArray(report.clicks, "clicks");
+  requireObject(report.states, "states");
+  requireObject(report.userConfirmations, "userConfirmations");
+  requireObject(report.chrome, "chrome");
+  requireTruthy(report.chrome.version, "chrome.version");
+
+  const checksByName = new Map(report.checks.map((check) => [check.name, check]));
+  const requirePassedCheck = (name) => {
+    const check = checksByName.get(name);
+    requireTruthy(check, `checks.${name}`);
+    requireEqual(check.pass, true, `checks.${name}.pass`);
+    return check;
+  };
+
+  for (const name of requiredChecks) {
+    requirePassedCheck(name);
+  }
+
+  for (const [name, expectedCount] of Object.entries(requiredClickCounts)) {
+    const clicks = report.clicks.filter((click) => click.name === name);
+    if (clicks.length < expectedCount) {
+      throw new Error(`clicks.${name} expected at least ${expectedCount}, found ${clicks.length}`);
+    }
+    for (const click of clicks) {
+      requirePositiveNumber(click.point?.x, `clicks.${name}.point.x`);
+      requirePositiveNumber(click.point?.y, `clicks.${name}.point.y`);
+    }
+  }
+
+  requireEqual(report.userConfirmations.visualInspection, true, "visualInspection");
+  requireEqual(report.userConfirmations.audibleA4, true, "audibleA4");
+  requireEqual(report.userConfirmations.realMidiNoteVisible, true, "realMidiNoteVisible");
+  requireEqual(
+    report.userConfirmations.realMidiRecordingVisible,
+    true,
+    "realMidiRecordingVisible"
+  );
+
+  requireObject(report.states.runtime, "states.runtime");
+  requireEqual(report.states.runtime.hasGpu, true, "states.runtime.hasGpu");
+  requirePositiveNumber(report.states.runtime.canvasWidth, "states.runtime.canvasWidth");
+  requirePositiveNumber(report.states.runtime.canvasHeight, "states.runtime.canvasHeight");
+
+  requireObject(report.states.afterAudioRefresh, "states.afterAudioRefresh");
+  requirePositiveNumber(
+    report.states.afterAudioRefresh.audioOutputCount,
+    "states.afterAudioRefresh.audioOutputCount"
+  );
+  requireTruthy(
+    report.states.afterAudioRefresh.browserAudioOutputNames,
+    "states.afterAudioRefresh.browserAudioOutputNames"
+  );
+
+  requireObject(report.states.afterAudioConnect, "states.afterAudioConnect");
+  requireEqual(
+    report.states.afterAudioConnect.audioStreamConnected,
+    true,
+    "states.afterAudioConnect.audioStreamConnected"
+  );
+  requireEqual(
+    report.states.afterAudioConnect.audioContextCreated,
+    true,
+    "states.afterAudioConnect.audioContextCreated"
+  );
+  requireEqual(
+    report.states.afterAudioConnect.audioProcessorAttached,
+    true,
+    "states.afterAudioConnect.audioProcessorAttached"
+  );
+  requireEqual(
+    report.states.afterAudioConnect.audioResumeRequested,
+    true,
+    "states.afterAudioConnect.audioResumeRequested"
+  );
+  requireEqual(
+    report.states.afterAudioConnect.audioResumeResolved,
+    true,
+    "states.afterAudioConnect.audioResumeResolved"
+  );
+
+  requireObject(report.states.afterAudioTest, "states.afterAudioTest");
+  requireEqual(report.states.afterAudioTest.audioNonzero, true, "states.afterAudioTest.audioNonzero");
+  requirePositiveNumber(
+    report.states.afterAudioTest.audioCallbackCount,
+    "states.afterAudioTest.audioCallbackCount"
+  );
+  requirePositiveNumber(
+    report.states.afterAudioTest.audioFrameCount,
+    "states.afterAudioTest.audioFrameCount"
+  );
+  requirePositiveNumber(report.states.afterAudioTest.audioPeak, "states.afterAudioTest.audioPeak");
+
+  requireObject(report.states.afterMidiRefresh, "states.afterMidiRefresh");
+  requirePositiveNumber(
+    report.states.afterMidiRefresh.midiInputCount,
+    "states.afterMidiRefresh.midiInputCount"
+  );
+  requireTruthy(
+    report.states.afterMidiRefresh.browserMidiInputNames,
+    "states.afterMidiRefresh.browserMidiInputNames"
+  );
+
+  requireObject(report.states.afterMidiConnect, "states.afterMidiConnect");
+  requireTruthy(
+    report.states.afterMidiConnect.connectedMidiInput,
+    "states.afterMidiConnect.connectedMidiInput"
+  );
+  requireTruthy(
+    report.states.afterMidiConnect.midiInputConnection,
+    "states.afterMidiConnect.midiInputConnection"
+  );
+
+  requireObject(report.states.afterRealMidiNote, "states.afterRealMidiNote");
+  if (
+    !(Number(report.states.afterRealMidiNote.lastMidiStatus) > 0) &&
+    !(Number(report.states.afterRealMidiNote.lastMidiNote) >= 0)
+  ) {
+    throw new Error("states.afterRealMidiNote should show a real MIDI status or note");
+  }
+  const realMidiEvidence = requirePassedCheck("manualRealMidiInput").evidence ?? {};
+  if (
+    Number(realMidiEvidence.before?.lastMidiStatus) ===
+      Number(realMidiEvidence.after?.lastMidiStatus) &&
+    Number(realMidiEvidence.before?.lastMidiNote) === Number(realMidiEvidence.after?.lastMidiNote)
+  ) {
+    throw new Error("manualRealMidiInput evidence should show a changed MIDI status or note");
+  }
+
+  requireObject(report.states.afterMidiRecording, "states.afterMidiRecording");
+  requirePositiveNumber(
+    report.states.afterMidiRecording.noteCount,
+    "states.afterMidiRecording.noteCount"
+  );
+  const recordingEvidence = requirePassedCheck("manualRealMidiRecording").evidence ?? {};
+  if (!(Number(recordingEvidence.afterNoteCount) > Number(recordingEvidence.beforeNoteCount))) {
+    throw new Error("manualRealMidiRecording evidence should show a new recorded note");
   }
 }
-
-requireEqual(report.userConfirmations.visualInspection, true, "visualInspection");
-requireEqual(report.userConfirmations.audibleA4, true, "audibleA4");
-requireEqual(report.userConfirmations.realMidiNoteVisible, true, "realMidiNoteVisible");
-requireEqual(report.userConfirmations.realMidiRecordingVisible, true, "realMidiRecordingVisible");
-
-requireObject(report.states.runtime, "states.runtime");
-requireEqual(report.states.runtime.hasGpu, true, "states.runtime.hasGpu");
-requirePositiveNumber(report.states.runtime.canvasWidth, "states.runtime.canvasWidth");
-requirePositiveNumber(report.states.runtime.canvasHeight, "states.runtime.canvasHeight");
-
-requireObject(report.states.afterAudioRefresh, "states.afterAudioRefresh");
-requirePositiveNumber(
-  report.states.afterAudioRefresh.audioOutputCount,
-  "states.afterAudioRefresh.audioOutputCount"
-);
-requireTruthy(
-  report.states.afterAudioRefresh.browserAudioOutputNames,
-  "states.afterAudioRefresh.browserAudioOutputNames"
-);
-
-requireObject(report.states.afterAudioConnect, "states.afterAudioConnect");
-requireEqual(
-  report.states.afterAudioConnect.audioStreamConnected,
-  true,
-  "states.afterAudioConnect.audioStreamConnected"
-);
-requireEqual(
-  report.states.afterAudioConnect.audioContextCreated,
-  true,
-  "states.afterAudioConnect.audioContextCreated"
-);
-requireEqual(
-  report.states.afterAudioConnect.audioProcessorAttached,
-  true,
-  "states.afterAudioConnect.audioProcessorAttached"
-);
-requireEqual(
-  report.states.afterAudioConnect.audioResumeRequested,
-  true,
-  "states.afterAudioConnect.audioResumeRequested"
-);
-requireEqual(
-  report.states.afterAudioConnect.audioResumeResolved,
-  true,
-  "states.afterAudioConnect.audioResumeResolved"
-);
-
-requireObject(report.states.afterAudioTest, "states.afterAudioTest");
-requireEqual(report.states.afterAudioTest.audioNonzero, true, "states.afterAudioTest.audioNonzero");
-requirePositiveNumber(
-  report.states.afterAudioTest.audioCallbackCount,
-  "states.afterAudioTest.audioCallbackCount"
-);
-requirePositiveNumber(report.states.afterAudioTest.audioFrameCount, "states.afterAudioTest.audioFrameCount");
-requirePositiveNumber(report.states.afterAudioTest.audioPeak, "states.afterAudioTest.audioPeak");
-
-requireObject(report.states.afterMidiRefresh, "states.afterMidiRefresh");
-requirePositiveNumber(report.states.afterMidiRefresh.midiInputCount, "states.afterMidiRefresh.midiInputCount");
-requireTruthy(
-  report.states.afterMidiRefresh.browserMidiInputNames,
-  "states.afterMidiRefresh.browserMidiInputNames"
-);
-
-requireObject(report.states.afterMidiConnect, "states.afterMidiConnect");
-requireTruthy(
-  report.states.afterMidiConnect.connectedMidiInput,
-  "states.afterMidiConnect.connectedMidiInput"
-);
-requireTruthy(
-  report.states.afterMidiConnect.midiInputConnection,
-  "states.afterMidiConnect.midiInputConnection"
-);
-
-requireObject(report.states.afterRealMidiNote, "states.afterRealMidiNote");
-if (
-  !(Number(report.states.afterRealMidiNote.lastMidiStatus) > 0) &&
-  !(Number(report.states.afterRealMidiNote.lastMidiNote) >= 0)
-) {
-  throw new Error("states.afterRealMidiNote should show a real MIDI status or note");
-}
-const realMidiEvidence = requirePassedCheck("manualRealMidiInput").evidence ?? {};
-if (
-  Number(realMidiEvidence.before?.lastMidiStatus) ===
-    Number(realMidiEvidence.after?.lastMidiStatus) &&
-  Number(realMidiEvidence.before?.lastMidiNote) === Number(realMidiEvidence.after?.lastMidiNote)
-) {
-  throw new Error("manualRealMidiInput evidence should show a changed MIDI status or note");
-}
-
-requireObject(report.states.afterMidiRecording, "states.afterMidiRecording");
-requirePositiveNumber(report.states.afterMidiRecording.noteCount, "states.afterMidiRecording.noteCount");
-const recordingEvidence = requirePassedCheck("manualRealMidiRecording").evidence ?? {};
-if (!(Number(recordingEvidence.afterNoteCount) > Number(recordingEvidence.beforeNoteCount))) {
-  throw new Error("manualRealMidiRecording evidence should show a new recorded note");
-}
-
-console.log(`manual web device report ok: ${reportPath}`);
 
 async function resolveReportPath(targetPath) {
   const targetStat = await stat(targetPath);
@@ -216,15 +241,12 @@ function requireEqual(actual, expected, label) {
   }
 }
 
-function requirePassedCheck(name) {
-  const check = checksByName.get(name);
-  requireTruthy(check, `checks.${name}`);
-  requireEqual(check.pass, true, `checks.${name}.pass`);
-  return check;
-}
-
 function requirePositiveNumber(value, label) {
   if (!(Number(value) > 0)) {
     throw new Error(`${label} should be a positive number, got ${JSON.stringify(value)}`);
   }
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

@@ -251,6 +251,8 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "usage: scripts/check-web-manual-devices.mjs <url>",
         "orbifold.web_manual_device_parity.v1",
         "This manual device check requires an interactive terminal",
+        "validateManualDeviceReport",
+        "report evidence validated",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "Input.dispatchMouseEvent",
@@ -316,6 +318,8 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "audioTestA4",
         "midiRefresh",
         "manual web device report ok",
+        "export function validateManualDeviceReport",
+        "isCliEntrypoint",
     ] {
         assert!(
             script.contains(required),

@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
+import { validateManualDeviceReport } from "./check-web-manual-report.mjs";
 
 const options = parseArgs(process.argv.slice(2));
 if (!options.url) {
@@ -89,7 +90,7 @@ try {
   await runManualDeviceCheck();
 } catch (error) {
   report.error = String(error?.stack || error?.message || error);
-  addCheck("manualDeviceVerifierCompleted", false, { error: report.error });
+  setCheck("manualDeviceVerifierCompleted", false, { error: report.error });
   process.exitCode = 1;
 } finally {
   const reportPath = writeReport(report, options.outDir);
@@ -261,8 +262,9 @@ async function runManualDeviceCheck() {
   if (!passed) {
     throw new Error("Manual device parity checks did not all pass.");
   }
+  validateManualDeviceReport(report);
 
-  console.log("\nManual web device parity checks passed.");
+  console.log("\nManual web device parity checks passed and report evidence validated.");
 }
 
 function parseArgs(args) {
@@ -559,6 +561,16 @@ async function confirm(message) {
 
 function addCheck(name, pass, evidence = {}) {
   if (report.checks.some((check) => check.name === name)) return;
+  setCheck(name, pass, evidence);
+}
+
+function setCheck(name, pass, evidence = {}) {
+  const existing = report.checks.find((check) => check.name === name);
+  if (existing) {
+    existing.pass = Boolean(pass);
+    existing.evidence = evidence;
+    return;
+  }
   report.checks.push({ name, pass: Boolean(pass), evidence });
 }
 
