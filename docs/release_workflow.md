@@ -92,9 +92,11 @@ Then run
 to tie the deployed live/layout/smoke checks, visual capture, manual report
 validation, and live-vs-manual artifact fingerprint comparison into one final
 pass/fail artifact.
-Finally run `./scripts/check-web-parity-complete.mjs reports/` over the saved
-reports so the release evidence has a simple offline completion check, including
-the visual manifest and saved viewport artifact files.
+Finally run
+`./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`
+over the saved reports so the release evidence has a simple offline completion
+check for the deployed target, including the visual manifest and saved viewport
+artifact files.
 After deployment, run `./scripts/check-web-live.mjs` against the Pages URL to
 verify the published site is serving the expected wasm loader, wasm binary,
 icons, relative paths, and runtime hooks. The Pages workflow also runs
@@ -178,7 +180,7 @@ site is serving the expected artifact. Start by running:
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
-./scripts/check-web-parity-complete.mjs reports/
+./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/
 ```
 
 ## 6. Prepare Handoff Notes

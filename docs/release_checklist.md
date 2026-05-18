@@ -41,9 +41,10 @@ MIDI, and audible Web Audio checks in `docs/web_parity_audit.md`, then validate
 the generated manual-device report with
 `./scripts/check-web-manual-report.mjs reports/` and run the final gate with
 `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`.
-Then run `./scripts/check-web-parity-complete.mjs reports/` over the saved
-reports before making a parity claim. This also validates the saved visual
-manifest and viewport artifact files.
+Then run
+`./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`
+over the saved reports before making a parity claim. This also validates the
+saved visual manifest and viewport artifact files for the deployed target.
 The final gate compares the manual report's deployed artifact fingerprint with
 the live Pages site, so rerun the manual device pass after deploying a changed
 web artifact.

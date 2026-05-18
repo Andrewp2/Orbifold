@@ -54,9 +54,9 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/ --preflight
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
-./scripts/check-web-parity-status.mjs reports/
+./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
-./scripts/check-web-parity-complete.mjs reports/
+./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/
 ```
 
 The headless smoke currently covers:
@@ -177,20 +177,20 @@ these manual checks before treating web as parity-complete:
   browser runtime exceptions, console errors/assertions, network load failures,
   or browser log errors, so unchecked or partial JSON cannot stand in for the
   browser session.
-- Run `./scripts/check-web-parity-status.mjs reports/` when you need a quick
-  diagnostic of which saved evidence artifact is missing. This is an
-  orientation check only; it does not replace the parity gate or completion
-  verifier.
+- Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
+  when you need a quick diagnostic of which saved evidence artifact is missing
+  for the deployed target. This is an orientation check only; it does not
+  replace the parity gate or completion verifier.
 - Run `./scripts/check-web-parity-gate.mjs` against the deployed Pages URL with
   the validated manual report. This wraps the deployed live/layout/smoke checks,
   visual capture, manual report validation, and live-vs-manual artifact
   fingerprint comparison into one final pass/fail report under `reports/`.
-- Run `./scripts/check-web-parity-complete.mjs reports/` against the saved
-  reports. This final offline evidence check requires a passing gate report,
-  validates the linked manual-device report again, rejects skipped visual
-  capture, validates the saved visual capture manifest and viewport artifact
-  files, and confirms the live artifact recorded by the gate still matches the
-  manual report artifact.
+- Run `./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`
+  against the saved reports. This final offline evidence check requires a
+  passing gate report for that deployed target, validates the linked
+  manual-device report again, rejects skipped visual capture, validates the
+  saved visual capture manifest and viewport artifact files, and confirms the
+  live artifact recorded by the gate still matches the manual report artifact.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real

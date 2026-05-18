@@ -74,9 +74,9 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/ --preflight
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
-./scripts/check-web-parity-status.mjs reports/
+./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
-./scripts/check-web-parity-complete.mjs reports/
+./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/
 ```
 
 The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
@@ -121,17 +121,19 @@ hardware Web MIDI confirmation, records the deployed artifact fingerprint, and
 writes a JSON report under `reports/`. Validate that report with
 `./scripts/check-web-manual-report.mjs reports/` before treating the manual
 device pass as release evidence.
-Use `./scripts/check-web-parity-status.mjs reports/` as a quick diagnostic when
-you need to know which saved evidence artifact is still missing; it does not
-replace the final parity gate or completion verifier.
+Use `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
+as a quick diagnostic when you need to know which saved evidence artifact is
+still missing for a specific deployed target; it does not replace the final
+parity gate or completion verifier.
 After the manual report exists, `./scripts/check-web-parity-gate.mjs` runs the
 deployed live/layout/smoke checks, captures deployed visuals, validates the
 manual report, rejects stale reports whose artifact fingerprint no longer
 matches the live Pages site, and writes a final gate report under `reports/`.
-Use `./scripts/check-web-parity-complete.mjs reports/` as the final saved
-evidence check; it requires a passing gate report, a validated manual-device
-report, a saved visual capture manifest with all required viewport artifacts,
-non-skipped visual capture, and matching manual/live artifact fingerprints.
+Use `./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`
+as the final saved evidence check; it requires a passing gate report for that
+target, a validated manual-device report, a saved visual capture manifest with
+all required viewport artifacts, non-skipped visual capture, and matching
+manual/live artifact fingerprints.
 
 ## Music Workflow
 

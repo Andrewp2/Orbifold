@@ -27,16 +27,16 @@ const requiredVisualCaptures = [
 ];
 
 if (isCliEntrypoint()) {
-  const target = process.argv[2] ?? "reports";
-
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
-    console.error("usage: scripts/check-web-parity-complete.mjs <reports/web-parity-gate-*.json|reports-dir>");
-    process.exit(2);
-  }
-
   try {
-    const reportPath = await resolveParityCompletionReportPath(target);
-    await validateParityCompletionReportFile(reportPath);
+    const options = parseParityCompletionArgs(process.argv.slice(2));
+    if (options.help) {
+      console.error(
+        "usage: scripts/check-web-parity-complete.mjs <reports/web-parity-gate-*.json|reports-dir> [--url https://pages-url/]"
+      );
+      process.exit(2);
+    }
+    const reportPath = await resolveParityCompletionReportPath(options.target);
+    await validateParityCompletionReportFile(reportPath, { expectedUrl: options.expectedUrl });
     console.log(`web parity completion evidence ok: ${reportPath}`);
   } catch (error) {
     console.error(`web parity completion evidence failed: ${error.message ?? error}`);
@@ -44,11 +44,40 @@ if (isCliEntrypoint()) {
   }
 }
 
+export function parseParityCompletionArgs(args) {
+  const parsed = { target: "reports", expectedUrl: "", help: false };
+  let targetSeen = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--url") {
+      parsed.expectedUrl = args[++index] ?? "";
+    } else if (arg.startsWith("--url=")) {
+      parsed.expectedUrl = arg.slice("--url=".length);
+    } else if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    } else if (!arg.startsWith("--") && !targetSeen) {
+      parsed.target = arg;
+      targetSeen = true;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return parsed;
+}
+
 export function validateParityCompletionReport(report, options = {}) {
   requireEqual(report.schema, "orbifold.web_parity_gate.v1", "schema");
   requireTruthy(report.generatedAt, "generatedAt");
   requireIsoDate(report.generatedAt, "generatedAt");
   requireTruthy(report.targetUrl, "targetUrl");
+  if (options.expectedUrl) {
+    requireEqual(
+      normalizeCompletionUrl(report.targetUrl),
+      normalizeCompletionUrl(options.expectedUrl),
+      "targetUrl"
+    );
+  }
   requireEqual(report.passed, true, "passed");
   requireEqual(report.skippedVisualCapture, false, "skippedVisualCapture");
   requireArray(report.steps, "steps");
@@ -87,14 +116,19 @@ export function validateParityCompletionReport(report, options = {}) {
   validateVisualCaptureManifest(options.visualManifest, report);
 }
 
-export async function validateParityCompletionReportFile(reportPath) {
+export async function validateParityCompletionReportFile(reportPath, options = {}) {
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   const reportDir = path.dirname(reportPath);
   const manualReportPath = resolveManualReportPath(report.manualReportPath, reportDir);
   const manualReport = JSON.parse(await readFile(manualReportPath, "utf8"));
   const visualManifestPath = await resolveVisualManifestPath(report, reportDir);
   const visualManifest = JSON.parse(await readFile(visualManifestPath, "utf8"));
-  validateParityCompletionReport(report, { reportDir, manualReport, visualManifest });
+  validateParityCompletionReport(report, {
+    reportDir,
+    manualReport,
+    visualManifest,
+    expectedUrl: options.expectedUrl,
+  });
   await requireExistingVisualCaptureFiles(visualManifest, visualManifestPath);
 }
 

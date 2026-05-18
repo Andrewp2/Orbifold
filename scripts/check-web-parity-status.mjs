@@ -7,36 +7,75 @@ import {
   resolveParityCompletionReportPath,
   validateParityCompletionReportFile,
 } from "./check-web-parity-complete.mjs";
+import { normalizeWebRootHref } from "./web-artifact-fingerprint.mjs";
 
 if (isCliEntrypoint()) {
-  const target = process.argv[2] ?? "reports";
-
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
-    console.error("usage: scripts/check-web-parity-status.mjs [reports-dir]");
+  try {
+    const options = parseWebParityStatusArgs(process.argv.slice(2));
+    if (options.help) {
+      console.error("usage: scripts/check-web-parity-status.mjs [reports-dir] [--url https://pages-url/]");
+      process.exit(2);
+    }
+    const status = await inspectWebParityStatus(options.target, {
+      expectedUrl: options.expectedUrl,
+    });
+    printWebParityStatus(status);
+    process.exit(status.complete ? 0 : 1);
+  } catch (error) {
+    console.error(`web parity status failed: ${error.message ?? error}`);
     process.exit(2);
   }
-
-  const status = await inspectWebParityStatus(target);
-  printWebParityStatus(status);
-  process.exit(status.complete ? 0 : 1);
 }
 
-export async function inspectWebParityStatus(target = "reports") {
+export function parseWebParityStatusArgs(args) {
+  const parsed = { target: "reports", expectedUrl: "", help: false };
+  let targetSeen = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--url") {
+      parsed.expectedUrl = args[++index] ?? "";
+    } else if (arg.startsWith("--url=")) {
+      parsed.expectedUrl = arg.slice("--url=".length);
+    } else if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    } else if (!arg.startsWith("--") && !targetSeen) {
+      parsed.target = arg;
+      targetSeen = true;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return parsed;
+}
+
+export async function inspectWebParityStatus(target = "reports", options = {}) {
   const status = {
     target,
+    expectedUrl: options.expectedUrl ?? "",
     complete: false,
-    manualReport: await inspectManualReport(target),
-    completionReport: await inspectCompletionReport(target),
+    manualReport: await inspectManualReport(target, options),
+    completionReport: await inspectCompletionReport(target, options),
   };
   status.complete = status.manualReport.ok && status.completionReport.ok;
   return status;
 }
 
-async function inspectManualReport(target) {
+async function inspectManualReport(target, options) {
   try {
     const path = await resolveReportPath(target);
     const report = JSON.parse(await readFile(path, "utf8"));
     validateManualDeviceReport(report);
+    if (
+      options.expectedUrl &&
+      normalizeWebRootHref(report.targetUrl) !== normalizeWebRootHref(options.expectedUrl)
+    ) {
+      throw new Error(
+        `manual report target ${normalizeWebRootHref(
+          report.targetUrl
+        )} does not match expected ${normalizeWebRootHref(options.expectedUrl)}`
+      );
+    }
     return {
       ok: true,
       path,
@@ -49,10 +88,10 @@ async function inspectManualReport(target) {
   }
 }
 
-async function inspectCompletionReport(target) {
+async function inspectCompletionReport(target, options) {
   try {
     const path = await resolveParityCompletionReportPath(target);
-    await validateParityCompletionReportFile(path);
+    await validateParityCompletionReportFile(path, { expectedUrl: options.expectedUrl });
     return { ok: true, path };
   } catch (error) {
     return { ok: false, error: String(error?.message ?? error) };
@@ -62,6 +101,9 @@ async function inspectCompletionReport(target) {
 export function printWebParityStatus(status) {
   console.log(`web parity status: ${status.complete ? "complete" : "incomplete"}`);
   console.log(`reports target: ${status.target}`);
+  if (status.expectedUrl) {
+    console.log(`expected URL: ${status.expectedUrl}`);
+  }
   printItem("manual device report", status.manualReport, formatManualReport);
   printItem("completion gate report", status.completionReport, (item) => item.path);
   if (!status.complete) {

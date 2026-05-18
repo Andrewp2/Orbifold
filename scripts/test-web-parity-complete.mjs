@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  parseParityCompletionArgs,
   resolveParityCompletionReportPath,
   validateParityCompletionReport,
   validateParityCompletionReportFile,
@@ -17,10 +18,34 @@ const visualManifest = validVisualManifest(manualReport.targetUrl);
 assert.doesNotThrow(() =>
   validateParityCompletionReport(gateReport, { manualReport, visualManifest })
 );
+assert.deepEqual(parseParityCompletionArgs([]), {
+  target: "reports",
+  expectedUrl: "",
+  help: false,
+});
+assert.deepEqual(parseParityCompletionArgs(["reports/final.json", "--url", manualReport.targetUrl]), {
+  target: "reports/final.json",
+  expectedUrl: manualReport.targetUrl,
+  help: false,
+});
+assert.deepEqual(parseParityCompletionArgs(["reports", `--url=${manualReport.targetUrl}`]), {
+  target: "reports",
+  expectedUrl: manualReport.targetUrl,
+  help: false,
+});
+assert.throws(() => parseParityCompletionArgs(["reports", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
 
 assert.throws(() => validateParityCompletionReport(gateReport, { manualReport }), {
   message: /visualManifest should be present/,
 });
+
+assertRejects(
+  gateReport,
+  'targetUrl expected "https://example.invalid/Other/"',
+  { expectedUrl: "https://example.invalid/Other/" }
+);
 
 assertRejects(
   withChange(gateReport, (draft) => {
@@ -116,6 +141,13 @@ try {
 
   assert.equal(await resolveParityCompletionReportPath(reportsDir), gatePath);
   await validateParityCompletionReportFile(gatePath);
+  await validateParityCompletionReportFile(gatePath, { expectedUrl: manualReport.targetUrl });
+  await assert.rejects(
+    validateParityCompletionReportFile(gatePath, {
+      expectedUrl: "https://example.invalid/Other/",
+    }),
+    /targetUrl expected/
+  );
 
   await assert.rejects(
     resolveParityCompletionReportPath(path.join(tempDir, "missing")),

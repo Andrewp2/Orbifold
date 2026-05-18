@@ -573,7 +573,9 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
 
     for required in [
         "usage: scripts/check-web-parity-complete.mjs <reports/web-parity-gate-*.json|reports-dir>",
+        "--url",
         "orbifold.web_parity_gate.v1",
+        "parseParityCompletionArgs",
         "resolveParityCompletionReportPath",
         "validateParityCompletionReport",
         "validateParityCompletionReportFile",
@@ -647,10 +649,13 @@ fn web_parity_status_script_reports_missing_evidence() {
 
     for required in [
         "usage: scripts/check-web-parity-status.mjs [reports-dir]",
+        "--url",
+        "parseWebParityStatusArgs",
         "inspectWebParityStatus",
         "validateManualDeviceReport(report)",
-        "validateParityCompletionReportFile(path)",
+        "validateParityCompletionReportFile(path, { expectedUrl: options.expectedUrl })",
         "web parity status:",
+        "expected URL:",
         "manual device report",
         "completion gate report",
         "next required evidence:",

@@ -92,9 +92,9 @@ testers can separate expected unfinished behavior from bugs worth reporting.
   `./scripts/check-web-manual-report.mjs reports/`, and the final parity gate
   must confirm that report's artifact fingerprint still matches the live Pages
   artifact. The saved reports should then pass
-  `./scripts/check-web-parity-complete.mjs reports/`, including saved visual
-  manifest and viewport artifact validation, before anyone claims full web
-  parity.
+  `./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`,
+  including saved visual manifest and viewport artifact validation for the
+  deployed target, before anyone claims full web parity.
 - WebGPU support is required for the live wasm UI. Browsers without WebGPU show
   the static fallback shell.
 - Browser settings and the latest project session persist in `localStorage`.

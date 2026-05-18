@@ -4,7 +4,26 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { inspectWebParityStatus } from "./check-web-parity-status.mjs";
+import { inspectWebParityStatus, parseWebParityStatusArgs } from "./check-web-parity-status.mjs";
+
+assert.deepEqual(parseWebParityStatusArgs([]), {
+  target: "reports",
+  expectedUrl: "",
+  help: false,
+});
+assert.deepEqual(parseWebParityStatusArgs(["evidence", "--url", "https://example.invalid/Orbifold/"]), {
+  target: "evidence",
+  expectedUrl: "https://example.invalid/Orbifold/",
+  help: false,
+});
+assert.deepEqual(parseWebParityStatusArgs(["--url=https://example.invalid/Orbifold/"]), {
+  target: "reports",
+  expectedUrl: "https://example.invalid/Orbifold/",
+  help: false,
+});
+assert.throws(() => parseWebParityStatusArgs(["reports", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "orbifold-web-parity-status-"));
 try {
@@ -40,6 +59,21 @@ try {
   assert.equal(completeStatus.manualReport.checkCount, 10);
   assert.equal(completeStatus.completionReport.ok, true);
   assert.equal(completeStatus.completionReport.path, gatePath);
+
+  const targetedCompleteStatus = await inspectWebParityStatus(reportsDir, {
+    expectedUrl: manualReport.targetUrl,
+  });
+  assert.equal(targetedCompleteStatus.complete, true);
+  assert.equal(targetedCompleteStatus.expectedUrl, manualReport.targetUrl);
+
+  const wrongTargetStatus = await inspectWebParityStatus(reportsDir, {
+    expectedUrl: "https://example.invalid/Other/",
+  });
+  assert.equal(wrongTargetStatus.complete, false);
+  assert.equal(wrongTargetStatus.manualReport.ok, false);
+  assert.match(wrongTargetStatus.manualReport.error, /does not match expected/);
+  assert.equal(wrongTargetStatus.completionReport.ok, false);
+  assert.match(wrongTargetStatus.completionReport.error, /targetUrl expected/);
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }

@@ -289,16 +289,17 @@ musically usable.
 - Run `./scripts/check-web-manual-report.mjs reports/` against the generated
   report and confirm it accepts the real browser/audio/MIDI evidence and
   artifact fingerprint.
-- Run `./scripts/check-web-parity-status.mjs reports/` if you need a quick
-  diagnostic of which saved parity evidence artifact is still missing. Do not
-  treat the status diagnostic as a parity pass by itself.
+- Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
+  if you need a quick diagnostic of which saved parity evidence artifact is
+  still missing for the deployed target. Do not treat the status diagnostic as a
+  parity pass by itself.
 - Run `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
   and keep the generated `reports/web-parity-gate-*.json` with the release
   evidence. The gate rejects manual reports whose fingerprint no longer matches
   the live Pages artifact.
-- Run `./scripts/check-web-parity-complete.mjs reports/` and confirm it accepts
-  the saved manual-device report, final parity-gate report, visual manifest,
-  and saved viewport artifacts.
+- Run `./scripts/check-web-parity-complete.mjs reports/ --url https://<user>.github.io/<repo>/`
+  and confirm it accepts the saved manual-device report, final parity-gate
+  report, visual manifest, and saved viewport artifacts for the deployed target.
 - Confirm browser `Open` refuses dirty replacement on the first click/shortcut
   and opens the picker only after the second confirmed action.
 - Confirm browser `Save`/`Save As` downloads `.orbifold` project text and the
