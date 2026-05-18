@@ -204,6 +204,8 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
         "hidpi-1920x1080-dpr2",
         "wide-3840x2160",
         "Page.captureScreenshot",
+        "fromSurface: false",
+        "screenshotAttempts",
         "paint-snapshot-svg",
         "readVisualSnapshot",
         "Target.closeTarget",

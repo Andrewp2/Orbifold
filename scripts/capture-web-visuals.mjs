@@ -246,29 +246,18 @@ async function captureViewport(send, sessionId, viewport) {
   await send("Page.navigate", { url: urlForViewport(target, viewport.label) }, sessionId);
 
   const state = await waitForReadyState(send, sessionId, viewport);
-  const screenshot = await send(
-    "Page.captureScreenshot",
-    {
-      format: "png",
-      fromSurface: true,
-      captureBeyondViewport: false,
-    },
-    sessionId
-  );
-  const screenshotBytes = Buffer.from(screenshot.data, "base64");
-  const imageStats = pngStats(screenshotBytes);
-  const screenshotUsable =
-    imageStats && imageStats.nonTransparentPixels > 0 && imageStats.rgbRange > 0;
-  const screenshotFallback = screenshotFallbackReason(imageStats);
-  if (screenshotUsable) {
+  const screenshotAttempts = await captureScreenshotAttempts(send, sessionId);
+  const usableScreenshot = screenshotAttempts.find((attempt) => attempt.usable);
+  if (usableScreenshot) {
     const screenshotPath = path.join(runDir, `${viewport.label}.png`);
-    fs.writeFileSync(screenshotPath, screenshotBytes);
+    fs.writeFileSync(screenshotPath, usableScreenshot.bytes);
 
     return {
       ...viewport,
-      mode: "page-screenshot",
+      mode: usableScreenshot.mode,
       screenshot: screenshotPath,
-      imageStats,
+      imageStats: usableScreenshot.imageStats,
+      screenshotAttempts: summarizeScreenshotAttempts(screenshotAttempts),
       state,
     };
   }
@@ -281,11 +270,48 @@ async function captureViewport(send, sessionId, viewport) {
     ...viewport,
     mode: "paint-snapshot-svg",
     snapshot: snapshotPath,
-    screenshotFallback,
-    imageStats,
+    screenshotFallback: screenshotAttempts.map((attempt) => attempt.fallbackReason).join("; "),
+    imageStats: screenshotAttempts[0]?.imageStats ?? null,
+    screenshotAttempts: summarizeScreenshotAttempts(screenshotAttempts),
     snapshotStats: snapshot.stats,
     state,
   };
+}
+
+async function captureScreenshotAttempts(send, sessionId) {
+  const configs = [
+    { mode: "page-screenshot-surface", fromSurface: true },
+    { mode: "page-screenshot-view", fromSurface: false },
+  ];
+  const attempts = [];
+  for (const config of configs) {
+    const screenshot = await send(
+      "Page.captureScreenshot",
+      {
+        format: "png",
+        fromSurface: config.fromSurface,
+        captureBeyondViewport: false,
+      },
+      sessionId
+    );
+    const bytes = Buffer.from(screenshot.data, "base64");
+    const imageStats = pngStats(bytes);
+    const usable = Boolean(
+      imageStats && imageStats.nonTransparentPixels > 0 && imageStats.rgbRange > 0
+    );
+    attempts.push({
+      ...config,
+      bytes,
+      imageStats,
+      usable,
+      fallbackReason: usable ? "" : screenshotFallbackReason(imageStats),
+    });
+  }
+  return attempts;
+}
+
+function summarizeScreenshotAttempts(attempts) {
+  return attempts.map(({ bytes: _bytes, ...attempt }) => attempt);
 }
 
 function screenshotFallbackReason(imageStats) {

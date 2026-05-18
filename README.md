@@ -103,7 +103,8 @@ a high-DPI viewport to catch canvas scaling regressions.
 The visual capture script writes compact, desktop, high-DPI, and 4K browser
 visual artifacts plus a manifest under `screenshots/web/` for manual
 inspection. When headless Chrome returns transparent WebGPU screenshots, it
-falls back to an SVG paint snapshot exported by the live wasm runtime.
+falls back to an SVG paint snapshot exported by the live wasm runtime and
+records the browser screenshot attempts in the manifest.
 The Pages workflow captures and uploads the same visual artifact set for both
 the local build artifact and the deployed Pages URL.
 Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
