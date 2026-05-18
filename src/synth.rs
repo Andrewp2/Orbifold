@@ -11,8 +11,9 @@ const OUTPUT_LIMIT_THRESHOLD: f32 = 0.48;
 const OUTPUT_LIMIT_HOLD_MS: f32 = 180.0;
 const OUTPUT_METER_DECAY: f32 = 0.9995;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum Waveform {
+    #[default]
     Sine,
     Triangle,
     Saw,
@@ -41,12 +42,6 @@ impl Waveform {
             "Square" => Some(Self::Square),
             _ => None,
         }
-    }
-}
-
-impl Default for Waveform {
-    fn default() -> Self {
-        Self::Sine
     }
 }
 

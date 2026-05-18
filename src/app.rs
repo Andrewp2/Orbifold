@@ -3318,7 +3318,7 @@ impl AppState {
             return;
         }
         self.last_metronome_beat = Some(beat_idx);
-        self.trigger_metronome_click(beat_idx % 4 == 0);
+        self.trigger_metronome_click(beat_idx.is_multiple_of(4));
     }
 
     fn trigger_metronome_click(&mut self, accented: bool) {
