@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { inspectWebParityStatus, parseWebParityStatusArgs } from "./check-web-parity-status.mjs";
+import {
+  inspectWebParityStatus,
+  parseWebParityStatusArgs,
+  printWebParityStatus,
+} from "./check-web-parity-status.mjs";
 
 assert.deepEqual(parseWebParityStatusArgs([]), {
   target: "reports",
@@ -77,6 +81,12 @@ try {
   assert.match(wrongTargetStatus.manualReport.error, /does not match expected/);
   assert.equal(wrongTargetStatus.completionReport.ok, false);
   assert.match(wrongTargetStatus.completionReport.error, /targetUrl expected/);
+
+  const statusOutput = captureConsole(() => printWebParityStatus(wrongTargetStatus));
+  assert.match(
+    statusOutput,
+    /scripts\/check-web-manual-devices\.mjs https:\/\/example\.invalid\/Other\//
+  );
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }
@@ -284,4 +294,16 @@ function artifactFingerprint(rootUrl, generatedAt) {
       ])
     ),
   };
+}
+
+function captureConsole(callback) {
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => lines.push(args.join(" "));
+  try {
+    callback();
+  } finally {
+    console.log = originalLog;
+  }
+  return lines.join("\n");
 }

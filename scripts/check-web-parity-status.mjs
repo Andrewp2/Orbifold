@@ -114,16 +114,12 @@ export function printWebParityStatus(status) {
     console.log("");
     console.log("next required evidence:");
     if (!status.manualReport.ok) {
-      console.log(
-        "- run scripts/check-web-manual-devices.mjs against the deployed Pages URL with real Web Audio and Web MIDI hardware"
-      );
+      console.log(`- run ${manualDeviceCommand(status)} with real Web Audio and Web MIDI hardware`);
       console.log("- then run scripts/check-web-manual-report.mjs reports/");
       return;
     }
-    console.log(
-      "- run scripts/check-web-parity-gate.mjs against the deployed Pages URL with --report reports/"
-    );
-    console.log("- then run scripts/check-web-parity-complete.mjs reports/");
+    console.log(`- run ${parityGateCommand(status)}`);
+    console.log(`- then run ${parityCompleteCommand(status)}`);
   }
 }
 
@@ -137,6 +133,27 @@ function printItem(label, item, format) {
 
 function formatManualReport(item) {
   return `${item.path} (${item.checkCount} checks, target ${item.targetUrl}, ${item.generatedAt})`;
+}
+
+function manualDeviceCommand(status) {
+  if (status.expectedUrl) {
+    return `scripts/check-web-manual-devices.mjs ${status.expectedUrl}`;
+  }
+  return "scripts/check-web-manual-devices.mjs against the deployed Pages URL";
+}
+
+function parityGateCommand(status) {
+  if (status.expectedUrl) {
+    return `scripts/check-web-parity-gate.mjs ${status.expectedUrl} --report reports/`;
+  }
+  return "scripts/check-web-parity-gate.mjs against the deployed Pages URL with --report reports/";
+}
+
+function parityCompleteCommand(status) {
+  if (status.expectedUrl) {
+    return `scripts/check-web-parity-complete.mjs reports/ --url ${status.expectedUrl}`;
+  }
+  return "scripts/check-web-parity-complete.mjs reports/";
 }
 
 function isCliEntrypoint() {
