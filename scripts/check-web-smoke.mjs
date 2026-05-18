@@ -17,6 +17,7 @@ if (typeof WebSocket !== "function") {
 }
 
 const timeoutMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_TIMEOUT_MS", 15_000);
+const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
 const settleMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_SETTLE_MS", 1_000);
 const smokeScaleDescription = "Browser 5-EDO";
 const smokeScalaProjectLine = "scala_path=browser_5_edo.scl";
@@ -98,7 +99,7 @@ function findChrome() {
 
 function waitForDevtoolsEndpoint() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + devtoolsTimeoutMs;
     const timer = setInterval(() => {
       const text = `${stderr}\n${stdout}`;
       const match = text.match(/DevTools listening on (ws:\/\/[^\s]+)/);

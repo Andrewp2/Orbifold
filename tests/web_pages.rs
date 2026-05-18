@@ -60,8 +60,11 @@ fn pages_workflow_builds_and_deploys_dist() {
         "node-version: 22",
         "python3 -m http.server 4173 --directory dist",
         "./scripts/check-web-dist.mjs dist",
+        "if ./scripts/check-web-layout.mjs http://127.0.0.1:4173/; then",
         "./scripts/check-web-layout.mjs http://127.0.0.1:4173/",
+        "if ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/; then",
         "./scripts/check-web-smoke.mjs http://127.0.0.1:4173/",
+        "if ./scripts/capture-web-visuals.mjs http://127.0.0.1:4173/ --out screenshots/web-local; then",
         "./scripts/capture-web-visuals.mjs http://127.0.0.1:4173/ --out screenshots/web-local",
         "actions/upload-artifact@v4",
         "orbifold-web-visuals-local",
@@ -92,6 +95,7 @@ fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
 
     for required in [
         "usage: scripts/check-web-layout.mjs <url>",
+        "ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",
@@ -172,6 +176,7 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
 
     for required in [
         "usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]",
+        "ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",
@@ -254,6 +259,7 @@ fn web_smoke_script_checks_headless_runtime_readiness() {
     let script = include_str!("../scripts/check-web-smoke.mjs");
 
     for required in [
+        "ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",

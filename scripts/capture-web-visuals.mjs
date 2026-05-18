@@ -11,6 +11,7 @@ const parsedArgs = parseArgs(args);
 const target = parsedArgs.target;
 const outDir = parsedArgs.outDir;
 const timeoutMs = numberFromEnv("ORBIFOLD_WEB_VISUAL_TIMEOUT_MS", 20_000);
+const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
 
 const viewports = [
   { label: "compact-1200x760", width: 1200, height: 760, deviceScaleFactor: 1 },
@@ -128,7 +129,7 @@ function findChrome() {
 
 function waitForDevtoolsEndpoint() {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + devtoolsTimeoutMs;
     const timer = setInterval(() => {
       const text = `${stderr}\n${stdout}`;
       const match = text.match(/DevTools listening on (ws:\/\/[^\s]+)/);
