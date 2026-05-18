@@ -98,6 +98,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node-version: 22",
         "cargo fmt --check",
         "cargo test",
+        "node scripts/test-web-artifact-fingerprint.mjs",
         "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
         "node scripts/test-web-parity-gate.mjs",
@@ -491,6 +492,7 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
 #[test]
 fn web_artifact_fingerprint_script_hashes_deployed_files() {
     let script = include_str!("../scripts/web-artifact-fingerprint.mjs");
+    let behavior_test = include_str!("../scripts/test-web-artifact-fingerprint.mjs");
 
     for required in [
         "orbifold.web_artifact_fingerprint.v1",
@@ -510,6 +512,23 @@ fn web_artifact_fingerprint_script_hashes_deployed_files() {
         assert!(
             script.contains(required),
             "scripts/web-artifact-fingerprint.mjs should fingerprint deployed web artifacts: {required}"
+        );
+    }
+
+    for required in [
+        "requireArtifactFingerprint(artifact)",
+        "normalizeWebRootHref",
+        "compareWebArtifactFingerprints",
+        "rootUrl expected https://example.invalid/Orbifold/, got https://example.invalid/Other/",
+        "artifact.schema should be orbifold.web_artifact_fingerprint.v1",
+        "artifact.files.wasm should be an object",
+        "artifact.files.icon.sha256 should be a sha256 hex digest",
+        "artifact.files.favicon.bytes should be positive",
+        "web artifact fingerprint behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-artifact-fingerprint.mjs should behavior-test {required}"
         );
     }
 }
