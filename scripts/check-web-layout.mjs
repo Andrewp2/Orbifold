@@ -166,19 +166,9 @@ async function checkLayouts(browserWsUrl) {
   });
 
   try {
-    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
-    const { sessionId } = await send("Target.attachToTarget", {
-      targetId,
-      flatten: true,
-    });
-    await send("Runtime.enable", {}, sessionId);
-    await send("Log.enable", {}, sessionId);
-    await send("Network.enable", {}, sessionId);
-    await send("Page.enable", {}, sessionId);
-
     const results = [];
     for (const viewport of viewports) {
-      results.push(await checkViewport(send, sessionId, viewport));
+      results.push(await checkViewportInFreshTarget(send, viewport));
     }
     const failures = browserFailures(events);
     if (failures.length > 0) {
@@ -187,6 +177,23 @@ async function checkLayouts(browserWsUrl) {
     return results;
   } finally {
     ws.close();
+  }
+}
+
+async function checkViewportInFreshTarget(send, viewport) {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Runtime.enable", {}, sessionId);
+    await send("Log.enable", {}, sessionId);
+    await send("Network.enable", {}, sessionId);
+    await send("Page.enable", {}, sessionId);
+    return await checkViewport(send, sessionId, viewport);
+  } finally {
+    await send("Target.closeTarget", { targetId }).catch(() => {});
   }
 }
 

@@ -95,6 +95,8 @@ fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
         "hidpi-1920x1080-dpr2",
         "wide-3840x2160",
         "orbifold_layout",
+        "checkViewportInFreshTarget",
+        "Target.closeTarget",
         "runtime-ready",
         "runtime-failed",
         "canvasClientWidth",
