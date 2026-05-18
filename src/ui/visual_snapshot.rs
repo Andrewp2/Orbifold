@@ -95,7 +95,6 @@ impl SvgWriter {
                 }
                 PaintKind::Text(content) if !content.text.trim().is_empty() => {
                     let rect = item.transform.transform_rect(item.rect);
-                    let clip = item.transform.transform_rect(item.clip_rect);
                     let shape = svg_text(
                         rect,
                         &content.text,
@@ -103,11 +102,10 @@ impl SvgWriter {
                         TextHorizontalAlign::Start,
                         TextVerticalAlign::Top,
                     );
-                    self.write_shape(clip, item.opacity, &shape);
+                    self.write_shape_unclipped(item.opacity, &shape);
                 }
                 PaintKind::SceneText(text) if !text.text.trim().is_empty() => {
                     let rect = item.transform.transform_rect(text.rect);
-                    let clip = item.transform.transform_rect(item.clip_rect);
                     let shape = svg_text(
                         rect,
                         &text.text,
@@ -115,7 +113,7 @@ impl SvgWriter {
                         text.horizontal_align,
                         text.vertical_align,
                     );
-                    self.write_shape(clip, item.opacity, &shape);
+                    self.write_shape_unclipped(item.opacity, &shape);
                 }
                 PaintKind::Line { from, to, stroke } => {
                     let from = item.transform.transform_point(*from);
@@ -192,6 +190,18 @@ impl SvgWriter {
         self.body.push_str(&format!(
             r#"<g clip-path="url(#{})" opacity="{}">{}</g>"#,
             clip_id,
+            fmt(opacity.clamp(0.0, 1.0)),
+            shape
+        ));
+        self.body.push('\n');
+    }
+
+    fn write_shape_unclipped(&mut self, opacity: f32, shape: &str) {
+        if shape.is_empty() {
+            return;
+        }
+        self.body.push_str(&format!(
+            r#"<g opacity="{}">{}</g>"#,
             fmt(opacity.clamp(0.0, 1.0)),
             shape
         ));
@@ -278,34 +288,35 @@ fn svg_text(
         TextHorizontalAlign::Center => rect.x + rect.width * 0.5,
         TextHorizontalAlign::End => rect.right(),
     };
-    let y = match vertical_align {
-        TextVerticalAlign::Top => rect.y,
-        TextVerticalAlign::Center => rect.y + rect.height * 0.5,
-        TextVerticalAlign::Baseline => rect.y,
-        TextVerticalAlign::Bottom => rect.bottom(),
-    };
+    let y = svg_text_baseline_y(rect, style, vertical_align);
     let anchor = match horizontal_align {
         TextHorizontalAlign::Start => "start",
         TextHorizontalAlign::Center => "middle",
         TextHorizontalAlign::End => "end",
     };
-    let baseline = match vertical_align {
-        TextVerticalAlign::Top => "hanging",
-        TextVerticalAlign::Center => "middle",
-        TextVerticalAlign::Baseline => "alphabetic",
-        TextVerticalAlign::Bottom => "text-after-edge",
-    };
     format!(
-        r#"<text x="{}" y="{}" fill="{}" fill-opacity="{}" font-family="Inter, system-ui, sans-serif" font-size="{}" text-anchor="{}" dominant-baseline="{}">{}</text>"#,
+        r#"<text x="{}" y="{}" fill="{}" fill-opacity="{}" font-family="Inter, system-ui, sans-serif" font-size="{}" text-anchor="{}">{}</text>"#,
         fmt(x),
         fmt(y),
         color_rgb(style.color),
         color_opacity(style.color),
         fmt(style.font_size),
         anchor,
-        baseline,
         escape_xml(text)
     )
+}
+
+fn svg_text_baseline_y(rect: UiRect, style: &TextStyle, vertical_align: TextVerticalAlign) -> f32 {
+    let font_size = style.font_size.max(1.0);
+    match vertical_align {
+        // Several SVG renderers used during review disagree on `dominant-baseline`
+        // values. Emit explicit alphabetic y positions and let SVG's default
+        // baseline behavior keep snapshots readable outside the browser.
+        TextVerticalAlign::Top => rect.y + font_size * 0.82,
+        TextVerticalAlign::Center => rect.y + rect.height * 0.5 + font_size * 0.35,
+        TextVerticalAlign::Baseline => rect.y,
+        TextVerticalAlign::Bottom => rect.bottom() - font_size * 0.18,
+    }
 }
 
 fn svg_line(from: UiPoint, to: UiPoint, stroke: StrokeStyle, scale: f32) -> String {
@@ -534,7 +545,36 @@ mod tests {
         assert!(snapshot.svg.contains("<svg"));
         assert!(snapshot.svg.contains("<rect"));
         assert!(snapshot.svg.contains("Ready &amp; Able"));
+        assert!(snapshot.svg.contains(r#"<g opacity="1"><text"#));
+        assert!(!snapshot.svg.contains("dominant-baseline"));
+        assert!(!snapshot.svg.contains(r#"dominant-baseline="hanging""#));
+        assert!(
+            !snapshot
+                .svg
+                .contains(r#"dominant-baseline="text-after-edge""#)
+        );
         assert!(snapshot.item_count >= 2);
         assert_eq!(snapshot.unsupported_count, 0);
+    }
+
+    #[test]
+    fn visual_snapshot_text_positions_use_explicit_default_baselines() {
+        let rect = UiRect::new(10.0, 20.0, 100.0, 30.0);
+        let style = TextStyle {
+            font_size: 10.0,
+            ..TextStyle::default()
+        };
+
+        assert!((svg_text_baseline_y(rect, &style, TextVerticalAlign::Top) - 28.2).abs() < 0.001);
+        assert!(
+            (svg_text_baseline_y(rect, &style, TextVerticalAlign::Center) - 38.5).abs() < 0.001
+        );
+        assert_eq!(
+            svg_text_baseline_y(rect, &style, TextVerticalAlign::Baseline),
+            20.0
+        );
+        assert!(
+            (svg_text_baseline_y(rect, &style, TextVerticalAlign::Bottom) - 48.2).abs() < 0.001
+        );
     }
 }
