@@ -120,7 +120,9 @@ full manual run opens a real Chrome session, prompts for audible Web Audio and
 hardware Web MIDI confirmation, records the deployed artifact fingerprint, and
 writes a JSON report under `reports/`. Validate that report with
 `./scripts/check-web-manual-report.mjs reports/` before treating the manual
-device pass as release evidence.
+device pass as release evidence. Add `--finalize` to the manual-device command
+when you want a successful manual pass to immediately run the manual-report
+validator, final Pages parity gate, and saved-evidence completion verifier.
 Use `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
 as a quick diagnostic when you need to know which saved evidence artifact is
 still missing for a specific deployed target; it does not replace the final

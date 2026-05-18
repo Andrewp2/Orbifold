@@ -86,7 +86,9 @@ When the manual browser/device pass writes `reports/web-manual-devices-*.json`,
 run `./scripts/check-web-manual-report.mjs reports/` so the release evidence is
 checked for passed Web Audio, Web MIDI, real-click, and user-confirmation
 fields, plus the deployed artifact fingerprint, instead of only preserving an
-unchecked JSON file.
+unchecked JSON file. You can also run the manual browser/device command with
+`--finalize` to run this validator and the remaining parity gates immediately
+after the hardware prompts pass.
 Then run
 `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
 to tie the deployed live/layout/smoke checks, visual capture, manual report

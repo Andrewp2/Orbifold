@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import {
   createManualDeviceReport,
+  manualDeviceFinalizerCommands,
+  manualDeviceNextStepLines,
   parseManualDeviceArgs,
   persistedNoteCount,
 } from "./check-web-manual-devices.mjs";
@@ -12,6 +14,7 @@ assert.deepEqual(parseManualDeviceArgs(["https://example.invalid/Orbifold/"]), {
   outDir: "reports",
   keepOpen: false,
   preflight: false,
+  finalize: false,
 });
 
 assert.deepEqual(
@@ -21,12 +24,14 @@ assert.deepEqual(
     "manual-reports",
     "--keep-open",
     "--preflight",
+    "--finalize",
   ]),
   {
     url: "https://example.invalid/Orbifold/",
     outDir: "manual-reports",
     keepOpen: true,
     preflight: true,
+    finalize: true,
   }
 );
 
@@ -35,10 +40,14 @@ assert.deepEqual(parseManualDeviceArgs(["--help"]), {
   outDir: "reports",
   keepOpen: false,
   preflight: false,
+  finalize: false,
 });
 
 assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--bogus"]), {
   message: /Unknown argument: --bogus/,
+});
+assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--out"]), {
+  message: /--out requires a value/,
 });
 
 assert.equal(persistedNoteCount("orbifold_project=1\nnote\t1\nnote\t2\n"), 2);
@@ -62,5 +71,30 @@ assert.deepEqual(report.clicks, []);
 assert.deepEqual(report.states, {});
 assert.deepEqual(report.userConfirmations, {});
 assert.deepEqual(report.browserEvents, []);
+
+const finalizerCommands = manualDeviceFinalizerCommands(
+  "https://example.invalid/Orbifold/",
+  "reports/web-manual-devices-test.json"
+);
+assert.deepEqual(
+  finalizerCommands.map((step) => step.name),
+  ["manualReport", "parityGate", "parityComplete"]
+);
+assert.match(finalizerCommands[0].command.join(" "), /check-web-manual-report\.mjs/);
+assert.match(finalizerCommands[1].command.join(" "), /check-web-parity-gate\.mjs/);
+assert.match(finalizerCommands[2].command.join(" "), /check-web-parity-complete\.mjs/);
+assert(
+  finalizerCommands[2].command.includes("https://example.invalid/Orbifold/"),
+  "completion command should pin the deployed target URL"
+);
+assert.equal(
+  manualDeviceNextStepLines("https://example.invalid/Orbifold/", "reports/report with space.json")
+    .length,
+  3
+);
+assert.match(
+  manualDeviceNextStepLines("https://example.invalid/Orbifold/", "reports/report with space.json")[0],
+  /'.*report with space\.json'/
+);
 
 console.log("manual web device runner behavior ok");

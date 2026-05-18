@@ -285,7 +285,10 @@ musically usable.
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence; it
-  includes the deployed artifact fingerprint observed during the manual run.
+  includes the deployed artifact fingerprint observed during the manual run. Use
+  `--finalize` on the manual-device command when you want the report validator,
+  final parity gate, and saved-evidence completion verifier to run immediately
+  after a successful manual hardware pass.
 - Run `./scripts/check-web-manual-report.mjs reports/` against the generated
   report and confirm it accepts the real browser/audio/MIDI evidence and
   artifact fingerprint.

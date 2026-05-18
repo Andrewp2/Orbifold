@@ -167,7 +167,9 @@ these manual checks before treating web as parity-complete:
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence. The
   report records a hash fingerprint for the deployed HTML, wasm loader, wasm
-  binary, and icon files at the time of manual testing.
+  binary, and icon files at the time of manual testing. Add `--finalize` when
+  you want a successful manual pass to run the report validator, final parity
+  gate, and saved-evidence completion verifier immediately.
 - Run `./scripts/check-web-manual-report.mjs reports/` and keep the validator
   output with the manual report. A report only counts when every required check,
   user confirmation, real browser click, audible Web Audio sample, real MIDI

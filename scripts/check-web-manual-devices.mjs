@@ -6,9 +6,12 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateManualDeviceReport } from "./check-web-manual-report.mjs";
 import { fetchWebArtifactFingerprint } from "./web-artifact-fingerprint.mjs";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "..");
 
 let stdout = "";
 let stderr = "";
@@ -35,7 +38,7 @@ export async function runManualDeviceCli(args) {
   options = parseManualDeviceArgs(args);
   if (!options.url) {
     console.error(
-      "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open] [--preflight]"
+      "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open] [--preflight] [--finalize]"
     );
     process.exit(2);
   }
@@ -70,6 +73,7 @@ export async function runManualDeviceCli(args) {
   report = createManualDeviceReport(options.url, chromePath);
   stdout = "";
   stderr = "";
+  let manualPassed = false;
 
   chrome = spawn(
     chromePath,
@@ -98,6 +102,7 @@ export async function runManualDeviceCli(args) {
     const browserWsUrl = await waitForDevtoolsEndpoint();
     ({ send, pageSession } = await connectToPage(browserWsUrl));
     await runManualDeviceCheck();
+    manualPassed = true;
   } catch (error) {
     report.error = String(error?.stack || error?.message || error);
     setCheck("manualDeviceVerifierCompleted", false, { error: report.error });
@@ -111,6 +116,11 @@ export async function runManualDeviceCli(args) {
     } else {
       await terminateChrome(chrome);
       await removeProfile(profile);
+    }
+    if (manualPassed && options.finalize) {
+      await runManualDeviceFinalizers(options.url, reportPath);
+    } else if (manualPassed) {
+      printManualDeviceNextSteps(options.url, reportPath);
     }
   }
 }
@@ -280,15 +290,27 @@ async function runManualDeviceCheck() {
 }
 
 export function parseManualDeviceArgs(args) {
-  const parsed = { url: null, outDir: "reports", keepOpen: false, preflight: false };
+  const parsed = {
+    url: null,
+    outDir: "reports",
+    keepOpen: false,
+    preflight: false,
+    finalize: false,
+  };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--out") {
-      parsed.outDir = args[++index];
+      const value = args[++index];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--out requires a value");
+      }
+      parsed.outDir = value;
     } else if (arg === "--keep-open") {
       parsed.keepOpen = true;
     } else if (arg === "--preflight") {
       parsed.preflight = true;
+    } else if (arg === "--finalize") {
+      parsed.finalize = true;
     } else if (arg === "--help" || arg === "-h") {
       parsed.url = null;
       return parsed;
@@ -693,6 +715,81 @@ export function persistedNoteCount(projectText) {
   return (String(projectText || "").match(/\nnote\t/g) ?? []).length;
 }
 
+export function manualDeviceFinalizerCommands(url, reportPath) {
+  return [
+    {
+      name: "manualReport",
+      command: [process.execPath, path.join(scriptDir, "check-web-manual-report.mjs"), reportPath],
+    },
+    {
+      name: "parityGate",
+      command: [
+        process.execPath,
+        path.join(scriptDir, "check-web-parity-gate.mjs"),
+        url,
+        "--report",
+        reportPath,
+      ],
+    },
+    {
+      name: "parityComplete",
+      command: [
+        process.execPath,
+        path.join(scriptDir, "check-web-parity-complete.mjs"),
+        "reports",
+        "--url",
+        url,
+      ],
+    },
+  ];
+}
+
+export function manualDeviceNextStepLines(url, reportPath) {
+  return [
+    `./scripts/check-web-manual-report.mjs ${shellQuote(reportPath)}`,
+    `./scripts/check-web-parity-gate.mjs ${shellQuote(url)} --report ${shellQuote(reportPath)}`,
+    `./scripts/check-web-parity-complete.mjs reports/ --url ${shellQuote(url)}`,
+  ];
+}
+
+function printManualDeviceNextSteps(url, reportPath) {
+  console.log("\nManual device report passed. Next parity commands:");
+  for (const line of manualDeviceNextStepLines(url, reportPath)) {
+    console.log(`- ${line}`);
+  }
+  console.log("Or rerun the manual device command with --finalize to run these automatically.");
+}
+
+async function runManualDeviceFinalizers(url, reportPath) {
+  console.log("\nFinalizing web parity evidence from the manual device report.");
+  for (const step of manualDeviceFinalizerCommands(url, reportPath)) {
+    await runFinalizerStep(step);
+  }
+}
+
+function runFinalizerStep(step) {
+  console.log(`\n[${step.name}] ${step.command.map(shellQuote).join(" ")}`);
+  return new Promise((resolve, reject) => {
+    const child = spawn(step.command[0], step.command.slice(1), {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode, signal) => {
+      if (exitCode === 0) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `${step.name} failed with exit ${exitCode}${signal ? ` signal ${signal}` : ""}`
+          )
+        );
+      }
+    });
+  });
+}
+
 function writeReport(data, outDir) {
   fs.mkdirSync(outDir, { recursive: true });
   const stamp = data.generatedAt.replace(/[:.]/g, "-");
@@ -718,6 +815,11 @@ async function removeProfile(profilePath) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shellQuote(value) {
+  if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function isCliEntrypoint() {

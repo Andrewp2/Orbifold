@@ -47,7 +47,9 @@ over the saved reports before making a parity claim. This also validates the
 saved visual manifest and viewport artifact files for the deployed target.
 The final gate compares the manual report's deployed artifact fingerprint with
 the live Pages site, so rerun the manual device pass after deploying a changed
-web artifact.
+web artifact. For a browser parity release pass, the manual-device command can
+also be run with `--finalize` to execute the report validator, final gate, and
+completion verifier after the hardware prompts pass.
 
 ## Manual Smoke Test
 
