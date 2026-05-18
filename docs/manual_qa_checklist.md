@@ -171,6 +171,9 @@ musically usable.
 - Launch or screenshot with audio/MIDI probing skipped or unavailable and
   confirm the right panel opens directly in the setup/devices view.
 - With audio output, test A4 and confirm it produces sound.
+- On web, confirm the Devices panel shows a Web Audio diagnostic naming whether
+  sink selection is available, how many outputs were scanned, and whether routing
+  happened after connecting audio.
 - Cycle audio devices, connect, disconnect/remove the device externally, refresh,
   and confirm the UI reports the disconnected state.
 - Open the Devices panel from the right panel, select an audio output row
@@ -180,6 +183,8 @@ musically usable.
 - With no MIDI input, confirm Refresh stays available and Connect is disabled.
 - With MIDI input, connect it and confirm note-on/note-off updates the last MIDI
   label with a note name, MIDI number, channel, and velocity.
+- On web, confirm the Devices panel shows a Web MIDI diagnostic naming browser
+  permission/readiness, scanned input count, and connection state.
 - Move pitch bend or a non-sustain controller and confirm the last MIDI label
   says the input is ignored rather than implying synth modulation happened.
 - Open the Devices panel from the right panel, select a MIDI input row directly,

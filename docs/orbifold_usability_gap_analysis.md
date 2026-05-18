@@ -271,6 +271,9 @@ Progress since this gap list was first written:
 - The web smoke test now checks the documented browser shortcut mapping table,
   including file/edit commands, transport keys, clip-editing keys, UI zoom,
   repeat behavior, and ignored Alt-modified chords.
+- The Devices panel now shows browser-specific Web Audio and Web MIDI
+  diagnostics on web, including scan counts, connection state, and sink-routing
+  support, so real-device manual parity checks have visible evidence in the UI.
 - Browser text edit actions now share the native handler for BPM, root note,
   base frequency, scale search, and asset search, so the web runtime no longer
   silently ignores Operad `TextEdit` actions for those controls.

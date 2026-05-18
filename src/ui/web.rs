@@ -376,6 +376,7 @@ impl WebOrbifoldApp {
         self.poll_browser_services();
         self.app.poll_pending_file_dialog();
         self.app.update_music_playback();
+        self.refresh_browser_device_diagnostics();
         self.frame_count = self.frame_count.saturating_add(1);
         mark_browser_runtime_ready(self.frame_count, viewport);
         self.publish_browser_automation_geometry();
@@ -582,6 +583,13 @@ impl WebOrbifoldApp {
 
     fn surface_rects(&self) -> super::native::SurfaceRects {
         super::native::surface_layout(&self.app, self.viewport.width, self.viewport.height)
+    }
+
+    fn refresh_browser_device_diagnostics(&mut self) {
+        self.app
+            .set_browser_audio_diagnostic(browser_audio_diagnostic_js());
+        self.app
+            .set_browser_midi_diagnostic(browser_midi_diagnostic_js());
     }
 
     fn has_active_pointer_drag(&self) -> bool {
@@ -3086,6 +3094,7 @@ function fallbackBrowserAudioOutput() {
   document.body.dataset.orbifoldAudioOutputSelectionSupported = browserAudioSinkSelectionSupported() ? "1" : "0";
   orbifoldAudioOutputs = [{ name: "Browser audio", deviceId: "", isDefault: true }];
   window.__orbifoldAudioOutputs = orbifoldAudioOutputs;
+  document.body.dataset.orbifoldBrowserAudioOutputNames = "Browser audio";
   return orbifoldAudioOutputs;
 }
 
@@ -3123,6 +3132,32 @@ export async function request_audio_outputs_js() {
   window.__orbifoldAudioOutputs = orbifoldAudioOutputs;
   document.body.dataset.orbifoldBrowserAudioOutputNames = orbifoldAudioOutputs.map((output) => output.name).join("\n");
   return orbifoldAudioOutputs.map((output) => [output.name, output.isDefault]);
+}
+
+function browserCountLabel(count, singular, plural) {
+  if (count === 0) {
+    return `no ${plural}`;
+  }
+  if (count === 1) {
+    return `1 ${singular}`;
+  }
+  return `${count} ${plural}`;
+}
+
+export function browser_audio_diagnostic_js() {
+  let diagnostic = "";
+  if (!audioContextConstructor()) {
+    diagnostic = "Web Audio: unavailable";
+  } else {
+    const sink = browserAudioSinkSelectionSupported() ? "sink" : "default";
+    const outputNames = String(document.body.dataset.orbifoldBrowserAudioOutputNames || "")
+      .split("\n")
+      .filter((name) => name.trim().length > 0);
+    const routed = document.body.dataset.orbifoldAudioSinkResolved ? ", routed" : "";
+    diagnostic = `Web Audio: ${sink}, ${browserCountLabel(outputNames.length, "out", "outs")}${routed}`;
+  }
+  document.body.dataset.orbifoldBrowserAudioDiagnostic = diagnostic;
+  return diagnostic;
 }
 
 export function select_browser_audio_output_js(requestedName) {
@@ -3164,6 +3199,7 @@ function midiInputName(input) {
 export async function request_midi_inputs_js() {
   const access = await ensureMidiAccess();
   const names = midiInputs(access).map(midiInputName);
+  document.body.dataset.orbifoldMidiAccessState = "ready";
   document.body.dataset.orbifoldBrowserMidiInputNames = names.join("\n");
   return names;
 }
@@ -3196,6 +3232,22 @@ export async function connect_midi_input_js(selectedName) {
   document.body.dataset.orbifoldMidiInputState = String(input.state || "");
   document.body.dataset.orbifoldMidiInputConnection = String(input.connection || "");
   return midiInputName(input);
+}
+
+export function browser_midi_diagnostic_js() {
+  let diagnostic = "";
+  if (!navigator.requestMIDIAccess) {
+    diagnostic = "Web MIDI: unavailable";
+  } else {
+    const accessState = document.body.dataset.orbifoldMidiAccessState || "permission needed";
+    const inputNames = String(document.body.dataset.orbifoldBrowserMidiInputNames || "")
+      .split("\n")
+      .filter((name) => name.trim().length > 0);
+    const connection = document.body.dataset.orbifoldMidiInputConnection || accessState;
+    diagnostic = `Web MIDI: ${connection}, ${browserCountLabel(inputNames.length, "input", "inputs")}`;
+  }
+  document.body.dataset.orbifoldBrowserMidiDiagnostic = diagnostic;
+  return diagnostic;
 }
 
 export function drain_midi_messages_js() {
@@ -3374,11 +3426,17 @@ extern "C" {
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = request_audio_outputs_js)]
     async fn request_audio_outputs_js() -> Result<JsValue, JsValue>;
 
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = browser_audio_diagnostic_js)]
+    fn browser_audio_diagnostic_js() -> String;
+
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = request_midi_inputs_js)]
     async fn request_midi_inputs_js() -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = connect_midi_input_js)]
     async fn connect_midi_input_js(selected_name: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = browser_midi_diagnostic_js)]
+    fn browser_midi_diagnostic_js() -> String;
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = drain_midi_messages_js)]
     fn drain_midi_messages_js() -> JsValue;

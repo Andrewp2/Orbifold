@@ -3,7 +3,7 @@ use crate::app::{AppState, audio_stream_info_label};
 use super::text::compact_label;
 
 pub(super) fn selected_midi_input_name(app: &AppState) -> String {
-    let connected = app.midi_connection.is_some();
+    let connected = midi_input_connected_for_ui(app);
     let selected_input = app.midi_inputs.get(app.selected_input).map(String::as_str);
     let label = midi_input_status_label(connected, selected_input, &app.connected_midi_input);
     device_label_with_position(label, "MIDI", app.selected_input, app.midi_inputs.len())
@@ -13,7 +13,7 @@ pub(super) fn midi_input_diagnostic_label(app: &AppState) -> String {
     device_diagnostic_label(
         app.midi_inputs.get(app.selected_input).map(String::as_str),
         &app.connected_midi_input,
-        app.midi_connection.is_some(),
+        midi_input_connected_for_ui(app),
         None,
         "Refresh to scan MIDI",
     )
@@ -35,9 +35,14 @@ pub(super) fn midi_input_status_label(
 
 pub(super) fn midi_connect_label(app: &AppState, compact: bool) -> &'static str {
     let selected_input = app.midi_inputs.get(app.selected_input).map(String::as_str);
-    let connected_to_selected = app.midi_connection.is_some()
+    let connected_to_selected = midi_input_connected_for_ui(app)
         && selected_name_matches_connected(selected_input, &app.connected_midi_input);
     device_connect_label(connected_to_selected, compact, "Connect MIDI")
+}
+
+fn midi_input_connected_for_ui(app: &AppState) -> bool {
+    app.midi_connection.is_some()
+        || (cfg!(target_arch = "wasm32") && !app.connected_midi_input.is_empty())
 }
 
 pub(super) fn device_connect_label(

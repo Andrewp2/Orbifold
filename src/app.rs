@@ -256,6 +256,8 @@ pub(crate) struct AppState {
     pub(crate) audio_outputs: Vec<AudioOutputDevice>,
     pub(crate) selected_audio_output: usize,
     pub(crate) connected_audio_output: String,
+    browser_midi_diagnostic: Option<String>,
+    browser_audio_diagnostic: Option<String>,
     pub(crate) last_status: String,
     diagnostic_messages: Vec<String>,
     pub(crate) scala_path: Option<PathBuf>,
@@ -403,6 +405,8 @@ impl AppState {
             audio_outputs: Vec::new(),
             selected_audio_output: 0,
             connected_audio_output: "default".to_string(),
+            browser_midi_diagnostic: None,
+            browser_audio_diagnostic: None,
             last_status: "Ready".to_string(),
             diagnostic_messages: Vec::new(),
             scala_path: None,
@@ -518,6 +522,8 @@ impl AppState {
             },
             selected_audio_output: 0,
             connected_audio_output,
+            browser_midi_diagnostic: None,
+            browser_audio_diagnostic: None,
             last_status: settings_status.unwrap_or_else(|| "Ready".to_string()),
             diagnostic_messages,
             scala_path: None,
@@ -883,6 +889,24 @@ impl AppState {
                 device_count_label(self.audio_outputs.len(), "audio output", "audio outputs")
             );
         }
+    }
+
+    #[cfg(any(test, feature = "web-app"))]
+    pub(crate) fn set_browser_audio_diagnostic(&mut self, diagnostic: impl Into<String>) {
+        self.browser_audio_diagnostic = non_empty_diagnostic(diagnostic.into());
+    }
+
+    #[cfg(any(test, feature = "web-app"))]
+    pub(crate) fn set_browser_midi_diagnostic(&mut self, diagnostic: impl Into<String>) {
+        self.browser_midi_diagnostic = non_empty_diagnostic(diagnostic.into());
+    }
+
+    pub(crate) fn browser_audio_diagnostic_label(&self) -> Option<&str> {
+        self.browser_audio_diagnostic.as_deref()
+    }
+
+    pub(crate) fn browser_midi_diagnostic_label(&self) -> Option<&str> {
+        self.browser_midi_diagnostic.as_deref()
     }
 
     pub(crate) fn connect_audio_output(&mut self) {
@@ -4739,6 +4763,12 @@ fn device_count_label(count: usize, singular: &str, plural: &str) -> String {
         1 => format!("1 {singular}"),
         count => format!("{count} {plural}"),
     }
+}
+
+#[cfg(any(test, feature = "web-app"))]
+fn non_empty_diagnostic(diagnostic: String) -> Option<String> {
+    let diagnostic = diagnostic.trim();
+    (!diagnostic.is_empty()).then(|| diagnostic.to_string())
 }
 
 fn note_count_label(count: usize) -> String {

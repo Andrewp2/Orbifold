@@ -932,6 +932,8 @@ async function verifyBrowserMidiFlow(send, sessionId) {
     (state) =>
       state.connectedMidiInput === "Orbifold Smoke MIDI" &&
       state.midiInputConnection === "open" &&
+      state.browserMidiDiagnostic.includes("Web MIDI: open") &&
+      state.browserMidiDiagnostic.includes("1 input") &&
       state.lastStatus.includes("Connected browser MIDI input: Orbifold Smoke MIDI"),
     "browser MIDI connect did not connect the mocked MIDI input"
   );
@@ -1026,6 +1028,9 @@ async function verifyBrowserAudioFlow(send, sessionId) {
       state.audioSinkResolved === "Default Smoke Output" &&
       state.audioSinkDeviceId === "default" &&
       state.smokeSinkId === "default" &&
+      state.browserAudioDiagnostic.includes("Web Audio: sink") &&
+      state.browserAudioDiagnostic.includes("2 outs") &&
+      state.browserAudioDiagnostic.includes("routed") &&
       state.audioContextCreated &&
       state.audioProcessorAttached &&
       state.audioResumeRequested,
@@ -1744,6 +1749,7 @@ async function evaluateProjectState(send, sessionId) {
         midiInputCount: Number(document.body.dataset.orbifoldMidiInputCount ?? 0),
         connectedMidiInput: document.body.dataset.orbifoldConnectedMidiInput ?? "",
         browserMidiInputNames: document.body.dataset.orbifoldBrowserMidiInputNames ?? "",
+        browserMidiDiagnostic: document.body.dataset.orbifoldBrowserMidiDiagnostic ?? "",
         midiInputState: document.body.dataset.orbifoldMidiInputState ?? "",
         midiInputConnection: document.body.dataset.orbifoldMidiInputConnection ?? "",
         lastMidiStatus: Number(document.body.dataset.orbifoldLastMidiStatus ?? 0),
@@ -1752,6 +1758,7 @@ async function evaluateProjectState(send, sessionId) {
         connectedAudioOutput: document.body.dataset.orbifoldConnectedAudioOutput ?? "",
         audioOutputSelectionSupported: document.body.dataset.orbifoldAudioOutputSelectionSupported === "1",
         browserAudioOutputNames: document.body.dataset.orbifoldBrowserAudioOutputNames ?? "",
+        browserAudioDiagnostic: document.body.dataset.orbifoldBrowserAudioDiagnostic ?? "",
         audioSinkRequested: document.body.dataset.orbifoldAudioSinkRequested ?? "",
         audioSinkResolved: document.body.dataset.orbifoldAudioSinkResolved ?? "",
         audioSinkDeviceId: document.body.dataset.orbifoldAudioSinkDeviceId ?? "",

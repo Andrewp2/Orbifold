@@ -4948,6 +4948,32 @@ fn device_panel_reports_selected_and_disconnected_device_diagnostics() {
 }
 
 #[test]
+fn device_panel_shows_browser_device_diagnostics_when_available() {
+    let mut app = AppState::for_layout_tests();
+    app.show_device_panel = true;
+    app.midi_inputs = vec!["Browser MIDI".to_string()];
+    app.connected_midi_input = "Browser MIDI".to_string();
+    app.audio_outputs = vec![AudioOutputDevice {
+        name: "Browser audio".to_string(),
+        is_default: true,
+    }];
+    app.connected_audio_output = "Browser audio".to_string();
+    app.set_browser_midi_diagnostic("Web MIDI: open, 1 input");
+    app.set_browser_audio_diagnostic("Web Audio: sink, 2 outs, routed");
+
+    let text = collect_surface_text_boxes(&app, 1200.0, 760.0);
+    assert!(text.iter().any(
+        |item| item.source.contains("device.midi.browser_diagnostic")
+            && item.text == "Web MIDI: open, 1 input"
+    ));
+    assert!(text.iter().any(
+        |item| item.source.contains("device.audio.browser_diagnostic")
+            && item.text == "Web Audio: sink, 2 outs, routed"
+    ));
+    assert_text_overlap_free("browser-device-diagnostics", &text);
+}
+
+#[test]
 fn device_diagnostic_labels_explain_empty_and_pending_selection_states() {
     let mut app = AppState::for_layout_tests();
 

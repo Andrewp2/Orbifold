@@ -165,6 +165,13 @@ fn add_compact_midi_setup_section(
         false,
     );
     y += 20.0;
+    add_browser_device_diagnostic(
+        document,
+        "device.midi.browser_diagnostic",
+        app.browser_midi_diagnostic_label(),
+        panel,
+        &mut y,
+    );
     add_device_action_buttons(
         document,
         "midi.refresh",
@@ -227,6 +234,13 @@ fn add_compact_audio_setup_section(
         false,
     );
     y += 20.0;
+    add_browser_device_diagnostic(
+        document,
+        "device.audio.browser_diagnostic",
+        app.browser_audio_diagnostic_label(),
+        panel,
+        &mut y,
+    );
     add_device_action_buttons(
         document,
         "audio.refresh",
@@ -318,7 +332,15 @@ fn add_midi_picker_section(
         UiRect::new(panel.x + 16.0, y, panel.width - 32.0, 18.0),
         false,
     );
-    y += 24.0;
+    y += 20.0;
+    add_browser_device_diagnostic(
+        document,
+        "device.midi.browser_diagnostic",
+        app.browser_midi_diagnostic_label(),
+        panel,
+        &mut y,
+    );
+    y += 4.0;
     if app.midi_inputs.is_empty() {
         add_label_at(
             document,
@@ -389,7 +411,15 @@ fn add_audio_picker_section(
         UiRect::new(panel.x + 16.0, y, panel.width - 32.0, 18.0),
         false,
     );
-    y += 24.0;
+    y += 20.0;
+    add_browser_device_diagnostic(
+        document,
+        "device.audio.browser_diagnostic",
+        app.browser_audio_diagnostic_label(),
+        panel,
+        &mut y,
+    );
+    y += 4.0;
     if app.audio_outputs.is_empty() {
         add_label_at(
             document,
@@ -422,6 +452,26 @@ fn add_audio_picker_section(
         y + 4.0,
         !app.audio_outputs.is_empty(),
     );
+}
+
+fn add_browser_device_diagnostic(
+    document: &mut UiDocument,
+    name: &str,
+    diagnostic: Option<&str>,
+    panel: UiRect,
+    y: &mut f32,
+) {
+    let Some(diagnostic) = diagnostic else {
+        return;
+    };
+    add_label_at(
+        document,
+        name,
+        diagnostic,
+        UiRect::new(panel.x + 16.0, *y, panel.width - 32.0, 18.0),
+        false,
+    );
+    *y += 20.0;
 }
 
 fn add_device_picker_heading(

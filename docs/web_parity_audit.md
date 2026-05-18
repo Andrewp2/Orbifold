@@ -81,7 +81,9 @@ The headless smoke currently covers:
   stub, fallback `Browser audio` discovery when it is not, audio-context
   creation, processor attachment, sink-selection request/error surfacing,
   resume request, Orbifold audio connected state, callback activity, rendered
-  frame count, and nonzero A4 test-tone samples.
+  frame count, nonzero A4 test-tone samples, and browser device diagnostics
+  that report Web Audio/Web MIDI support, scan counts, connection state, and
+  sink-routing state.
 
 The `tests/web_pages.rs` integration tests assert that the web shell, build
 script, Pages workflow, smoke script, runtime bridges, persistence paths, and
@@ -144,10 +146,13 @@ these manual checks before treating web as parity-complete:
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
   MIDI device, and confirm note-on/note-off updates status and playback through
   the same path as native. Treat this as the real MIDI device check; the
-  deterministic smoke stub is not enough for hardware parity.
+  deterministic smoke stub is not enough for hardware parity. Confirm the
+  Devices panel reports a Web MIDI diagnostic such as permission/input/connection
+  state while you test.
 - Connect a real audio output, click the browser audio connect path, play A4 or
   a short clip, and confirm audible output plus visible error reporting when the
-  output is unavailable.
+  output is unavailable. Confirm the Devices panel reports whether Web Audio can
+  select sinks or is limited to the default browser sink.
 - Compare native and browser keyboard shortcuts for transport, editing, file
   commands, help, and UI zoom.
 - Compare native and browser piano-roll workflows: create, select, move, resize,
