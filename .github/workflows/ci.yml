@@ -32,11 +32,19 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Format
         run: cargo fmt --check
 
       - name: Test
         run: cargo test
+
+      - name: Test web manual report validator
+        run: node scripts/test-web-manual-report-validator.mjs
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

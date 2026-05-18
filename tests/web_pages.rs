@@ -94,8 +94,11 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
     for required in [
         "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
         "actions/checkout@v4",
+        "actions/setup-node@v4",
+        "node-version: 22",
         "cargo fmt --check",
         "cargo test",
+        "node scripts/test-web-manual-report-validator.mjs",
         "cargo clippy --all-targets -- -D warnings",
     ] {
         assert!(
@@ -303,6 +306,7 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
 #[test]
 fn web_manual_report_validator_requires_real_device_evidence() {
     let script = include_str!("../scripts/check-web-manual-report.mjs");
+    let behavior_test = include_str!("../scripts/test-web-manual-report-validator.mjs");
     let readme = include_str!("../README.md");
     let audit = include_str!("../docs/web_parity_audit.md");
     let checklist = include_str!("../docs/manual_qa_checklist.md");
@@ -353,6 +357,22 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         assert!(
             script.contains(required),
             "scripts/check-web-manual-report.mjs should validate manual report evidence: {required}"
+        );
+    }
+
+    for required in [
+        "validateManualDeviceReport(report)",
+        "browserEvents should not contain runtime errors",
+        "clicks.record expected at least 2",
+        "artifact.rootUrl expected",
+        "states.afterAudioTest.audioNonzero expected true",
+        "manualRealMidiInput evidence should show a changed MIDI status or note",
+        "manualRealMidiRecording evidence should show a new recorded note",
+        "manual web device report validator behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-manual-report-validator.mjs should behavior-test {required}"
         );
     }
 
