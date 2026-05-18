@@ -1,18 +1,70 @@
 #!/usr/bin/env node
 
-const target = process.argv[2];
+import { pathToFileURL } from "node:url";
+import { requireContains, requireWebIndexHtml } from "./check-web-dist.mjs";
 
-if (!target) {
-  console.error("usage: scripts/check-web-live.mjs <https://pages-url/>");
-  process.exit(2);
+if (isCliEntrypoint()) {
+  const target = process.argv[2];
+  if (!target) {
+    console.error("usage: scripts/check-web-live.mjs <https://pages-url/>");
+    process.exit(2);
+  }
+  const rootHref = await checkWebLive(target);
+  console.log(`live web artifact ok: ${rootHref}`);
 }
 
-const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
-const rootUrl = new URL(normalizedTarget);
+export async function checkWebLive(target, fetchImpl = globalThis.fetch) {
+  if (!target) {
+    throw new Error("target URL is required");
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new Error("fetch implementation is required");
+  }
+  const rootUrl = normalizeWebLiveUrl(target);
 
-async function fetchRequired(relativePath, options = {}) {
+  const index = await fetchRequired(
+    rootUrl,
+    "./",
+    { text: true, contentType: "text/html" },
+    fetchImpl
+  );
+  requireContains(index.text, '<title>Orbifold</title>', "index.html");
+  requireWebIndexHtml(index.text);
+  requireContains(index.text, "static fallback", "index.html");
+
+  const js = await fetchRequired(rootUrl, "./pkg/orbifold_web.js", { text: true }, fetchImpl);
+  requireContains(js.text, "orbifold_web_bg.wasm", "orbifold_web.js");
+  requireContains(js.text, "start_orbifold", "orbifold_web.js");
+
+  const wasm = await fetchRequired(rootUrl, "./pkg/orbifold_web_bg.wasm", {}, fetchImpl);
+  if (
+    wasm.bytes[0] !== 0x00 ||
+    wasm.bytes[1] !== 0x61 ||
+    wasm.bytes[2] !== 0x73 ||
+    wasm.bytes[3] !== 0x6d
+  ) {
+    throw new Error(`${wasm.url.href} is not a wasm binary`);
+  }
+
+  await fetchRequired(rootUrl, "./favicon.ico", {}, fetchImpl);
+  await fetchRequired(rootUrl, "./orbifold_icon.png", {}, fetchImpl);
+
+  return rootUrl.href;
+}
+
+export function normalizeWebLiveUrl(target) {
+  const url = new URL(target);
+  url.hash = "";
+  url.search = "";
+  if (!url.pathname.endsWith("/")) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url;
+}
+
+export async function fetchRequired(rootUrl, relativePath, options = {}, fetchImpl = globalThis.fetch) {
   const url = new URL(relativePath, rootUrl);
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     cache: "no-store",
     redirect: "follow",
   });
@@ -40,45 +92,6 @@ async function fetchRequired(relativePath, options = {}) {
   };
 }
 
-function requireContains(text, needle, label) {
-  if (!text.includes(needle)) {
-    throw new Error(`${label} should contain ${needle}`);
-  }
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
-
-function requireNotContains(text, needle, label) {
-  if (text.includes(needle)) {
-    throw new Error(`${label} should not contain ${needle}`);
-  }
-}
-
-const index = await fetchRequired("./", { text: true, contentType: "text/html" });
-requireContains(index.text, '<title>Orbifold</title>', "index.html");
-requireContains(index.text, 'import init, { start_orbifold } from "./pkg/orbifold_web.js"', "index.html");
-requireContains(index.text, '<link rel="icon" href="./favicon.ico" sizes="any" />', "index.html");
-requireContains(
-  index.text,
-  '<link rel="icon" type="image/png" sizes="64x64" href="./orbifold_icon.png" />',
-  "index.html"
-);
-requireContains(index.text, "window.orbifoldRuntimeReady", "index.html");
-requireContains(index.text, "runtime-ready", "index.html");
-requireContains(index.text, "runtime-failed", "index.html");
-requireContains(index.text, "static fallback", "index.html");
-requireNotContains(index.text, 'href="/', "index.html");
-requireNotContains(index.text, 'src="/', "index.html");
-requireNotContains(index.text, 'from "/', "index.html");
-
-const js = await fetchRequired("./pkg/orbifold_web.js", { text: true });
-requireContains(js.text, "orbifold_web_bg.wasm", "orbifold_web.js");
-requireContains(js.text, "start_orbifold", "orbifold_web.js");
-
-const wasm = await fetchRequired("./pkg/orbifold_web_bg.wasm");
-if (wasm.bytes[0] !== 0x00 || wasm.bytes[1] !== 0x61 || wasm.bytes[2] !== 0x73 || wasm.bytes[3] !== 0x6d) {
-  throw new Error(`${wasm.url.href} is not a wasm binary`);
-}
-
-await fetchRequired("./favicon.ico");
-await fetchRequired("./orbifold_icon.png");
-
-console.log(`live web artifact ok: ${rootUrl.href}`);

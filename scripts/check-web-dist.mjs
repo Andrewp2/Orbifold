@@ -2,10 +2,28 @@
 
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-const distDir = process.argv[2] ?? "dist";
+if (isCliEntrypoint()) {
+  const distDir = process.argv[2] ?? "dist";
+  await checkWebDist(distDir);
+  console.log(`web dist artifact ok: ${distDir}`);
+}
 
-async function requireFile(relativePath) {
+export async function checkWebDist(distDir = "dist") {
+  await access(distDir);
+
+  const html = await requireText(distDir, "index.html");
+  await requireFile(distDir, "pkg/orbifold_web.js");
+  await requireFile(distDir, "pkg/orbifold_web_bg.wasm");
+  await requireFile(distDir, "favicon.ico");
+  await requireFile(distDir, "orbifold_icon.png");
+  await requireFile(distDir, ".nojekyll");
+
+  requireWebIndexHtml(html);
+}
+
+async function requireFile(distDir, relativePath) {
   const fullPath = path.join(distDir, relativePath);
   let fileStat;
   try {
@@ -22,43 +40,42 @@ async function requireFile(relativePath) {
   return fullPath;
 }
 
-async function requireText(relativePath) {
-  return await readFile(await requireFile(relativePath), "utf8");
+async function requireText(distDir, relativePath) {
+  return await readFile(await requireFile(distDir, relativePath), "utf8");
 }
 
-function requireContains(text, needle, label) {
+export function requireWebIndexHtml(html) {
+  requireContains(
+    html,
+    'import init, { start_orbifold } from "./pkg/orbifold_web.js"',
+    "index.html"
+  );
+  requireContains(html, '<link rel="icon" href="./favicon.ico" sizes="any" />', "index.html");
+  requireContains(
+    html,
+    '<link rel="icon" type="image/png" sizes="64x64" href="./orbifold_icon.png" />',
+    "index.html"
+  );
+  requireContains(html, "window.orbifoldRuntimeReady", "index.html");
+  requireContains(html, "runtime-ready", "index.html");
+  requireContains(html, "runtime-failed", "index.html");
+  requireNotContains(html, 'href="/', "index.html");
+  requireNotContains(html, 'src="/', "index.html");
+  requireNotContains(html, 'from "/', "index.html");
+}
+
+export function requireContains(text, needle, label) {
   if (!text.includes(needle)) {
     throw new Error(`${label} should contain ${needle}`);
   }
 }
 
-function requireNotContains(text, needle, label) {
+export function requireNotContains(text, needle, label) {
   if (text.includes(needle)) {
     throw new Error(`${label} should not contain ${needle}`);
   }
 }
 
-await access(distDir);
-
-const html = await requireText("index.html");
-await requireFile("pkg/orbifold_web.js");
-await requireFile("pkg/orbifold_web_bg.wasm");
-await requireFile("favicon.ico");
-await requireFile("orbifold_icon.png");
-await requireFile(".nojekyll");
-
-requireContains(html, 'import init, { start_orbifold } from "./pkg/orbifold_web.js"', "index.html");
-requireContains(html, '<link rel="icon" href="./favicon.ico" sizes="any" />', "index.html");
-requireContains(
-  html,
-  '<link rel="icon" type="image/png" sizes="64x64" href="./orbifold_icon.png" />',
-  "index.html"
-);
-requireContains(html, "window.orbifoldRuntimeReady", "index.html");
-requireContains(html, "runtime-ready", "index.html");
-requireContains(html, "runtime-failed", "index.html");
-requireNotContains(html, 'href="/', "index.html");
-requireNotContains(html, 'src="/', "index.html");
-requireNotContains(html, 'from "/', "index.html");
-
-console.log(`web dist artifact ok: ${distDir}`);
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}

@@ -98,6 +98,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node-version: 22",
         "cargo fmt --check",
         "cargo test",
+        "node scripts/test-web-artifact-checks.mjs",
         "node scripts/test-web-artifact-fingerprint.mjs",
         "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
@@ -171,8 +172,11 @@ fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
 #[test]
 fn web_dist_check_script_verifies_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-dist.mjs");
+    let behavior_test = include_str!("../scripts/test-web-artifact-checks.mjs");
 
     for required in [
+        "export async function checkWebDist",
+        "export function requireWebIndexHtml",
         "pkg/orbifold_web.js",
         "pkg/orbifold_web_bg.wasm",
         "favicon.ico",
@@ -188,6 +192,19 @@ fn web_dist_check_script_verifies_pages_artifact_shape() {
         assert!(
             script.contains(required),
             "scripts/check-web-dist.mjs should verify {required}"
+        );
+    }
+
+    for required in [
+        "await checkWebDist(distDir)",
+        "requireWebIndexHtml(webIndexHtml())",
+        "missing pkg\\/orbifold_web_bg\\.wasm",
+        "index\\.html should not contain href=\"\\/",
+        "web artifact checks behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-artifact-checks.mjs should behavior-test {required}"
         );
     }
 }
@@ -536,11 +553,14 @@ fn web_artifact_fingerprint_script_hashes_deployed_files() {
 #[test]
 fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-live.mjs");
+    let behavior_test = include_str!("../scripts/test-web-artifact-checks.mjs");
 
     for required in [
         "usage: scripts/check-web-live.mjs <https://pages-url/>",
+        "export async function checkWebLive",
+        "export function normalizeWebLiveUrl",
+        "requireWebIndexHtml(index.text)",
         "fetchRequired",
-        "normalizedTarget",
         "cache: \"no-store\"",
         "redirect: \"follow\"",
         "content-type",
@@ -548,20 +568,28 @@ fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
         "pkg/orbifold_web_bg.wasm",
         "favicon.ico",
         "orbifold_icon.png",
-        "window.orbifoldRuntimeReady",
-        "runtime-ready",
-        "runtime-failed",
         "static fallback",
         "orbifold_web_bg.wasm",
         "start_orbifold",
         "is not a wasm binary",
-        "href=\"/",
-        "src=\"/",
-        "from \"/",
     ] {
         assert!(
             script.contains(required),
             "scripts/check-web-live.mjs should verify {required}"
+        );
+    }
+
+    for required in [
+        "await checkWebLive(\"https://example.invalid/Orbifold\", mockFetch())",
+        "normalizeWebLiveUrl(\"https://example.invalid/Orbifold?old=1#section\")",
+        "is not a wasm binary",
+        "returned content-type text\\/plain, expected text\\/html",
+        "returned HTTP 404",
+        "web artifact checks behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-artifact-checks.mjs should behavior-test {required}"
         );
     }
 }
