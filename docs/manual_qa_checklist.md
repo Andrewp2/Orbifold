@@ -290,6 +290,8 @@ musically usable.
   and keep the generated `reports/web-parity-gate-*.json` with the release
   evidence. The gate rejects manual reports whose fingerprint no longer matches
   the live Pages artifact.
+- Run `./scripts/check-web-parity-complete.mjs reports/` and confirm it accepts
+  the saved manual-device report plus final parity-gate report.
 - Confirm browser `Open` refuses dirty replacement on the first click/shortcut
   and opens the picker only after the second confirmed action.
 - Confirm browser `Save`/`Save As` downloads `.orbifold` project text and the

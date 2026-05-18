@@ -54,6 +54,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
+./scripts/check-web-parity-complete.mjs reports/
 ```
 
 The headless smoke currently covers:
@@ -174,6 +175,11 @@ these manual checks before treating web as parity-complete:
   the validated manual report. This wraps the deployed live/layout/smoke checks,
   visual capture, manual report validation, and live-vs-manual artifact
   fingerprint comparison into one final pass/fail report under `reports/`.
+- Run `./scripts/check-web-parity-complete.mjs reports/` against the saved
+  reports. This final offline evidence check requires a passing gate report,
+  validates the linked manual-device report again, rejects skipped visual
+  capture, and confirms the live artifact recorded by the gate still matches
+  the manual report artifact.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
@@ -218,6 +224,9 @@ themselves:
   artifact than the one currently served by Pages.
 - Individual deployed or manual checks pass, without a passing
   `./scripts/check-web-parity-gate.mjs` run that ties the evidence together.
+- A final gate report exists, without a passing
+  `./scripts/check-web-parity-complete.mjs reports/` run over the saved
+  evidence.
 - The Pages workflow file exists, without a successful deployed Pages run.
 - `scripts/check-web-live.mjs` passes without a manual browser runtime check.
 - `scripts/check-web-layout.mjs` passes without visual inspection; it checks

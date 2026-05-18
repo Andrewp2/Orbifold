@@ -102,6 +102,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node scripts/test-web-artifact-fingerprint.mjs",
         "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
+        "node scripts/test-web-parity-complete.mjs",
         "node scripts/test-web-parity-gate.mjs",
         "node scripts/test-web-smoke-helpers.mjs",
         "node scripts/test-web-visual-layout-helpers.mjs",
@@ -548,6 +549,74 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         assert!(
             docs.contains("./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/"),
             "web parity gate workflow should be documented"
+        );
+    }
+}
+
+#[test]
+fn web_parity_completion_script_validates_saved_gate_evidence() {
+    let script = include_str!("../scripts/check-web-parity-complete.mjs");
+    let behavior_test = include_str!("../scripts/test-web-parity-complete.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+    let release_checklist = include_str!("../docs/release_checklist.md");
+    let release_workflow = include_str!("../docs/release_workflow.md");
+    let limitations = include_str!("../docs/known_limitations.md");
+
+    for required in [
+        "usage: scripts/check-web-parity-complete.mjs <reports/web-parity-gate-*.json|reports-dir>",
+        "orbifold.web_parity_gate.v1",
+        "resolveParityCompletionReportPath",
+        "validateParityCompletionReport",
+        "validateParityCompletionReportFile",
+        "validateManualDeviceReport",
+        "requireArtifactFingerprint",
+        "compareWebArtifactFingerprints",
+        "manualDeviceReport",
+        "manualReportTarget",
+        "manualReportArtifact",
+        "deployedArtifact",
+        "deployedLayout",
+        "deployedSmoke",
+        "deployedVisualCapture",
+        "manual report artifact matches live",
+        "web parity completion evidence ok",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-parity-complete.mjs should validate saved evidence: {required}"
+        );
+    }
+
+    for required in [
+        "validateParityCompletionReport(gateReport, { manualReport })",
+        "passed expected true, got false",
+        "skippedVisualCapture expected false, got true",
+        "steps.deployedSmoke should be an object",
+        "steps.deployedVisualCapture.command should not be skipped",
+        "manualReportArtifact should confirm the manual artifact matches live",
+        "manual report artifact should match live artifact",
+        "validateParityCompletionReportFile(gatePath)",
+        "web parity completion behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-parity-complete.mjs should behavior-test {required}"
+        );
+    }
+
+    for docs in [
+        readme,
+        audit,
+        checklist,
+        release_checklist,
+        release_workflow,
+        limitations,
+    ] {
+        assert!(
+            docs.contains("./scripts/check-web-parity-complete.mjs reports/"),
+            "web parity completion workflow should be documented"
         );
     }
 }

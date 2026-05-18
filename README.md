@@ -74,6 +74,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
 ./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
+./scripts/check-web-parity-complete.mjs reports/
 ```
 
 The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
@@ -120,6 +121,10 @@ After the manual report exists, `./scripts/check-web-parity-gate.mjs` runs the
 deployed live/layout/smoke checks, captures deployed visuals, validates the
 manual report, rejects stale reports whose artifact fingerprint no longer
 matches the live Pages site, and writes a final gate report under `reports/`.
+Use `./scripts/check-web-parity-complete.mjs reports/` as the final saved
+evidence check; it requires a passing gate report, a validated manual-device
+report, non-skipped visual capture, and matching manual/live artifact
+fingerprints.
 
 ## Music Workflow
 

@@ -49,6 +49,7 @@ jobs:
           node scripts/test-web-artifact-fingerprint.mjs
           node scripts/test-web-manual-devices.mjs
           node scripts/test-web-manual-report-validator.mjs
+          node scripts/test-web-parity-complete.mjs
           node scripts/test-web-parity-gate.mjs
           node scripts/test-web-smoke-helpers.mjs
           node scripts/test-web-visual-layout-helpers.mjs
