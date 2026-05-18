@@ -1069,6 +1069,8 @@ async function verifyBrowserFileFlows(send, sessionId, artifactsDir) {
     "browser project file picker did not load the selected project"
   );
 
+  await verifyInvalidBrowserProjectOpen(send, sessionId, artifactsDir);
+
   const scalePath = path.join(artifactsDir, "browser_5_edo.scl");
   fs.writeFileSync(scalePath, "Browser 5-EDO\n5\n240\n480\n720\n960\n2/1\n", "utf8");
   await chooseFileForBrowserAction(send, sessionId, "scale.open", scalePath);
@@ -1083,6 +1085,8 @@ async function verifyBrowserFileFlows(send, sessionId, artifactsDir) {
     "browser scale file picker did not load the selected Scala file"
   );
 
+  await verifyInvalidBrowserScaleOpen(send, sessionId, artifactsDir);
+
   const keymapPath = path.join(artifactsDir, "classic.ltn");
   fs.copyFileSync(path.resolve("lumatone_factory_presets/1. Classic Mode.ltn"), keymapPath);
   await chooseFileForBrowserAction(send, sessionId, "keymap.open", keymapPath);
@@ -1096,6 +1100,8 @@ async function verifyBrowserFileFlows(send, sessionId, artifactsDir) {
       state.project.includes(smokeLumatoneProjectLine),
     "browser key-map file picker did not load the selected Lumatone map"
   );
+
+  await verifyInvalidBrowserKeymapOpen(send, sessionId, artifactsDir);
 
   const beforeAsset = await evaluateProjectState(send, sessionId);
   const wavPath = path.join(artifactsDir, "smoke_sample.wav");
@@ -1117,6 +1123,79 @@ async function verifyBrowserFileFlows(send, sessionId, artifactsDir) {
       state.lastStatus.includes("Loaded sample instrument: smoke_sample.wav") &&
       state.project.includes(smokeSampleInstrumentProjectLine),
     "browser imported WAV could not be assigned as the project sample instrument"
+  );
+
+  await verifyUnsupportedBrowserAssetImport(send, sessionId, artifactsDir);
+}
+
+async function verifyInvalidBrowserProjectOpen(send, sessionId, artifactsDir) {
+  const before = await evaluateProjectState(send, sessionId);
+  const invalidProjectPath = path.join(artifactsDir, "bad_project.orbifold");
+  fs.writeFileSync(invalidProjectPath, "not an orbifold project", "utf8");
+
+  await chooseFileForBrowserAction(send, sessionId, "file.open", invalidProjectPath);
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastStatus.startsWith("Project parse error (bad_project.orbifold):") &&
+      state.title === before.title &&
+      state.project === before.project &&
+      persistedNoteCount(state.project) === persistedNoteCount(before.project),
+    "invalid browser project open did not preserve the current project with a visible parse error"
+  );
+}
+
+async function verifyInvalidBrowserScaleOpen(send, sessionId, artifactsDir) {
+  const before = await evaluateProjectState(send, sessionId);
+  const invalidScalePath = path.join(artifactsDir, "bad_scale.scl");
+  fs.writeFileSync(invalidScalePath, "not a scala file", "utf8");
+
+  await chooseFileForBrowserAction(send, sessionId, "scale.open", invalidScalePath);
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastStatus.startsWith("Scala parse error (bad_scale.scl):") &&
+      state.scaleDescription === before.scaleDescription &&
+      state.scalaPath === before.scalaPath &&
+      state.project === before.project,
+    "invalid browser scale open did not preserve the current scale with a visible parse error"
+  );
+}
+
+async function verifyInvalidBrowserKeymapOpen(send, sessionId, artifactsDir) {
+  const before = await evaluateProjectState(send, sessionId);
+  const invalidKeymapPath = path.join(artifactsDir, "bad_keymap.ltn");
+  fs.writeFileSync(invalidKeymapPath, "not a key map", "utf8");
+
+  await chooseFileForBrowserAction(send, sessionId, "keymap.open", invalidKeymapPath);
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastStatus.startsWith("Key map parse error (bad_keymap.ltn):") &&
+      state.lumatonePath === before.lumatonePath &&
+      state.lumatoneLoaded === before.lumatoneLoaded &&
+      state.project === before.project,
+    "invalid browser key-map open did not preserve the current key map with a visible parse error"
+  );
+}
+
+async function verifyUnsupportedBrowserAssetImport(send, sessionId, artifactsDir) {
+  const before = await evaluateProjectState(send, sessionId);
+  const unsupportedAssetPath = path.join(artifactsDir, "not_audio.txt");
+  fs.writeFileSync(unsupportedAssetPath, "not audio", "utf8");
+
+  await chooseFileForBrowserAction(send, sessionId, "asset.import", unsupportedAssetPath);
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastStatus.includes("Asset import error: unsupported sample") &&
+      state.assetCount === before.assetCount &&
+      state.project === before.project,
+    "unsupported browser asset import did not preserve assets with a visible error"
   );
 }
 
