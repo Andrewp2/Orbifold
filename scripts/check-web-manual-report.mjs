@@ -50,15 +50,25 @@ if (isCliEntrypoint()) {
 export function validateManualDeviceReport(report) {
   requireEqual(report.schema, "orbifold.web_manual_device_parity.v1", "schema");
   requireTruthy(report.generatedAt, "generatedAt");
+  requireIsoDate(report.generatedAt, "generatedAt");
   requireTruthy(report.targetUrl, "targetUrl");
   requireNoError(report);
   requireArray(report.checks, "checks");
   requireArray(report.clicks, "clicks");
+  requireArray(report.browserEvents, "browserEvents");
+  requireObject(report.host, "host");
+  requireTruthy(report.host.platform, "host.platform");
+  requireTruthy(report.host.arch, "host.arch");
+  requireTruthy(report.host.release, "host.release");
   requireObject(report.states, "states");
   requireObject(report.userConfirmations, "userConfirmations");
   requireObject(report.chrome, "chrome");
+  requireTruthy(report.chrome.path, "chrome.path");
   requireTruthy(report.chrome.version, "chrome.version");
+  requireTruthy(report.chrome.userAgent, "chrome.userAgent");
+  requireTruthy(report.chrome.protocolVersion, "chrome.protocolVersion");
   requireArtifactFingerprint(report.artifact, "artifact");
+  requireIsoDate(report.artifact.generatedAt, "artifact.generatedAt");
   requireEqual(
     normalizeWebRootHref(report.artifact.rootUrl),
     normalizeWebRootHref(report.targetUrl),
@@ -85,6 +95,7 @@ export function validateManualDeviceReport(report) {
     for (const click of clicks) {
       requirePositiveNumber(click.point?.x, `clicks.${name}.point.x`);
       requirePositiveNumber(click.point?.y, `clicks.${name}.point.y`);
+      requireIsoDate(click.at, `clicks.${name}.at`);
     }
   }
 
@@ -254,6 +265,12 @@ function requireEqual(actual, expected, label) {
 function requirePositiveNumber(value, label) {
   if (!(Number(value) > 0)) {
     throw new Error(`${label} should be a positive number, got ${JSON.stringify(value)}`);
+  }
+}
+
+function requireIsoDate(value, label) {
+  if (!value || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${label} should be an ISO date, got ${JSON.stringify(value)}`);
   }
 }
 

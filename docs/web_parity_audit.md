@@ -154,7 +154,9 @@ these manual checks before treating web as parity-complete:
   output with the manual report. A report only counts when every required check,
   user confirmation, real browser click, audible Web Audio sample, real MIDI
   input, MIDI recording evidence field, and deployed artifact fingerprint passes
-  validation.
+  validation. The validator also requires the verifier's host, Chrome, real
+  click-coordinate, and timestamp metadata so unchecked or partial JSON cannot
+  stand in for the browser session.
 - Run `./scripts/check-web-parity-gate.mjs` against the deployed Pages URL with
   the validated manual report. This wraps the deployed live/layout/smoke checks,
   visual capture, manual report validation, and live-vs-manual artifact
