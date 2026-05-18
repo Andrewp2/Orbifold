@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use js_sys::Array;
+use js_sys::{Array, Reflect};
 use operad::{
-    UiDocument, UiPoint, UiSize, WidgetAction, WidgetActionKind, WidgetDrag, WidgetDragPhase,
-    WidgetValueEditPhase,
+    KeyCode, KeyModifiers, UiDocument, UiInputEvent, UiPoint, UiSize, WidgetAction,
+    WidgetActionKind, WidgetDrag, WidgetDragPhase, WidgetTextEdit, WidgetValueEditPhase,
 };
 use wasm_bindgen::JsValue;
 
@@ -1337,6 +1337,11 @@ impl WebOrbifoldApp {
         for event in browser_drain_workspace_pointer_events() {
             self.handle_browser_workspace_pointer_event(event);
         }
+        for (action, edit) in browser_drain_text_edits() {
+            handle_text_edit_action(&mut self.app, &action, edit);
+            should_persist_settings = true;
+            should_persist_project = true;
+        }
         for action in browser_drain_keyboard_actions() {
             self.handle_browser_activate_action(&action);
         }
@@ -1885,6 +1890,58 @@ fn browser_drain_keyboard_actions() -> Vec<String> {
     js_string_array_lossy(drain_keyboard_actions_js())
 }
 
+fn browser_drain_text_edits() -> Vec<(String, WidgetTextEdit)> {
+    let edits = Array::from(&drain_text_edit_actions_js());
+    let mut out = Vec::new();
+    for index in 0..edits.length() {
+        let item = edits.get(index);
+        let Some(action) = js_object_string(&item, "action") else {
+            continue;
+        };
+        let Some(event_kind) = js_object_string(&item, "event") else {
+            continue;
+        };
+        let Some(event) = browser_text_edit_event(&event_kind, &item) else {
+            continue;
+        };
+        let mut edit = WidgetTextEdit::new(event);
+        edit.phase = WidgetValueEditPhase::Commit;
+        out.push((action, edit));
+    }
+    out
+}
+
+fn browser_text_edit_event(kind: &str, item: &JsValue) -> Option<UiInputEvent> {
+    match kind {
+        "text" => Some(UiInputEvent::TextInput(
+            js_object_string(item, "value").unwrap_or_default(),
+        )),
+        "key" => browser_text_edit_key(item).map(|key| UiInputEvent::Key {
+            key,
+            modifiers: KeyModifiers::NONE,
+        }),
+        _ => None,
+    }
+}
+
+fn browser_text_edit_key(item: &JsValue) -> Option<KeyCode> {
+    match js_object_string(item, "key")?.as_str() {
+        "Backspace" => Some(KeyCode::Backspace),
+        "Delete" => Some(KeyCode::Delete),
+        "Enter" => Some(KeyCode::Enter),
+        "Escape" => Some(KeyCode::Escape),
+        key if key.chars().count() == 1 => key.chars().next().map(KeyCode::Character),
+        _ => None,
+    }
+}
+
+fn js_object_string(item: &JsValue, key: &str) -> Option<String> {
+    Reflect::get(item, &JsValue::from_str(key))
+        .ok()
+        .and_then(|value| value.as_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn js_string_array(value: JsValue, context: &str) -> Result<Vec<String>, String> {
     let array = Array::from(&value);
     let mut strings = Vec::new();
@@ -1951,6 +2008,13 @@ function orbifoldActionQueue() {
   return window.__orbifoldActionQueue;
 }
 
+function orbifoldTextEditQueue() {
+  if (!Array.isArray(window.__orbifoldTextEditQueue)) {
+    window.__orbifoldTextEditQueue = [];
+  }
+  return window.__orbifoldTextEditQueue;
+}
+
 function queueOrbifoldAction(action) {
   if (typeof action !== "string" || action.trim() === "") {
     return false;
@@ -1958,6 +2022,25 @@ function queueOrbifoldAction(action) {
   const queue = orbifoldActionQueue();
   queue.push(action);
   document.body.dataset.orbifoldQueuedActionCount = String(queue.length);
+  return true;
+}
+
+function queueOrbifoldTextEdit(action, event, value) {
+  if (typeof action !== "string" || action.trim() === "") {
+    return false;
+  }
+  if (event !== "text" && event !== "key") {
+    return false;
+  }
+  const queue = orbifoldTextEditQueue();
+  const item = { action, event };
+  if (event === "key") {
+    item.key = String(value || "");
+  } else {
+    item.value = String(value || "");
+  }
+  queue.push(item);
+  document.body.dataset.orbifoldQueuedTextEditCount = String(queue.length);
   return true;
 }
 
@@ -2095,6 +2178,8 @@ export function install_browser_keyboard_shortcuts_js() {
     return;
   }
   window.orbifoldDispatchAction = queueOrbifoldAction;
+  window.orbifoldDispatchTextInput = (action, text) => queueOrbifoldTextEdit(action, "text", text);
+  window.orbifoldDispatchTextKey = (action, key) => queueOrbifoldTextEdit(action, "key", key);
   document.body.dataset.orbifoldKeyboardShortcuts = "installed";
   window.addEventListener("keydown", (event) => {
     const action = orbifoldShortcutAction(event);
@@ -2112,6 +2197,13 @@ export function drain_keyboard_actions_js() {
   const actions = queue.splice(0, queue.length);
   document.body.dataset.orbifoldQueuedActionCount = "0";
   return actions;
+}
+
+export function drain_text_edit_actions_js() {
+  const queue = orbifoldTextEditQueue();
+  const edits = queue.splice(0, queue.length);
+  document.body.dataset.orbifoldQueuedTextEditCount = "0";
+  return edits;
 }
 
 export function install_browser_wheel_bridge_js(canvasId) {
@@ -2915,6 +3007,9 @@ extern "C" {
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = drain_keyboard_actions_js)]
     fn drain_keyboard_actions_js() -> JsValue;
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = drain_text_edit_actions_js)]
+    fn drain_text_edit_actions_js() -> JsValue;
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = install_browser_wheel_bridge_js)]
     fn install_browser_wheel_bridge_js(canvas_id: &str) -> Result<(), JsValue>;

@@ -199,6 +199,7 @@ async function runSmoke(browserWsUrl) {
     await verifyToolbarButtonClicks(send, sessionId);
     await verifyActionDispatch(send, sessionId);
     await verifyKeyboardShortcut(send, sessionId);
+    await verifyBrowserTextEditActions(send, sessionId);
     await verifyPianoGridDoubleClick(send, sessionId);
     await verifyPianoNoteDrag(send, sessionId);
     await verifyPianoNoteResize(send, sessionId);
@@ -1075,6 +1076,75 @@ async function dispatchBrowserAction(send, sessionId, action) {
   );
   if (dispatchResult.result.value !== true) {
     throw new Error(`browser action dispatch hook rejected ${action}`);
+  }
+}
+
+async function verifyBrowserTextEditActions(send, sessionId) {
+  await dispatchBrowserTextInput(send, sessionId, "transport.bpm_input", "144");
+  await dispatchBrowserTextKey(send, sessionId, "transport.bpm_input", "Enter");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.project.includes("\nbpm=144\n"),
+    "browser BPM text edit did not commit through the shared text edit path"
+  );
+
+  await dispatchBrowserTextInput(send, sessionId, "scale.root_input", "60");
+  await dispatchBrowserTextKey(send, sessionId, "scale.root_input", "Enter");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.project.includes("\nroot_midi=60\n") && state.settings.includes("root_midi=60\n"),
+    "browser root text edit did not persist through the shared text edit path"
+  );
+
+  await dispatchBrowserTextInput(send, sessionId, "scale.base_input", "432");
+  await dispatchBrowserTextKey(send, sessionId, "scale.base_input", "Enter");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.project.includes("\nbase_freq=432\n") && state.settings.includes("base_freq=432\n"),
+    "browser base-frequency text edit did not persist through the shared text edit path"
+  );
+
+  await dispatchBrowserTextInput(send, sessionId, "scale.search", "edo");
+  await dispatchBrowserTextKey(send, sessionId, "scale.search", "Enter");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.lastStatus.includes("Scale search: edo"),
+    "browser scale search text edit did not update status through the shared text edit path"
+  );
+
+  await dispatchBrowserTextInput(send, sessionId, "asset.search", "kick");
+  await dispatchBrowserTextKey(send, sessionId, "asset.search", "Enter");
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.lastStatus.includes("Asset search: kick"),
+    "browser asset search text edit did not update status through the shared text edit path"
+  );
+}
+
+async function dispatchBrowserTextInput(send, sessionId, action, text) {
+  await dispatchBrowserTextEdit(send, sessionId, "orbifoldDispatchTextInput", action, text);
+}
+
+async function dispatchBrowserTextKey(send, sessionId, action, key) {
+  await dispatchBrowserTextEdit(send, sessionId, "orbifoldDispatchTextKey", action, key);
+}
+
+async function dispatchBrowserTextEdit(send, sessionId, hook, action, value) {
+  const dispatchResult = await send(
+    "Runtime.evaluate",
+    {
+      expression: `window.${hook}(${JSON.stringify(action)}, ${JSON.stringify(value)})`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  if (dispatchResult.result.value !== true) {
+    throw new Error(`browser text edit dispatch hook rejected ${action}`);
   }
 }
 
