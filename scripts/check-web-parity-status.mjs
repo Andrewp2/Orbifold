@@ -33,7 +33,11 @@ export function parseWebParityStatusArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--url") {
-      parsed.expectedUrl = args[++index] ?? "";
+      const value = args[++index];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--url requires a value");
+      }
+      parsed.expectedUrl = value;
     } else if (arg.startsWith("--url=")) {
       parsed.expectedUrl = arg.slice("--url=".length);
     } else if (arg === "--help" || arg === "-h") {

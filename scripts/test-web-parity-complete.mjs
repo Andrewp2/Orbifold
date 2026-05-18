@@ -36,6 +36,9 @@ assert.deepEqual(parseParityCompletionArgs(["reports", `--url=${manualReport.tar
 assert.throws(() => parseParityCompletionArgs(["reports", "--bogus"]), {
   message: /Unknown argument: --bogus/,
 });
+assert.throws(() => parseParityCompletionArgs(["reports", "--url"]), {
+  message: /--url requires a value/,
+});
 
 assert.throws(() => validateParityCompletionReport(gateReport, { manualReport }), {
   message: /visualManifest should be present/,

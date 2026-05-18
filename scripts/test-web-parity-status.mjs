@@ -24,6 +24,9 @@ assert.deepEqual(parseWebParityStatusArgs(["--url=https://example.invalid/Orbifo
 assert.throws(() => parseWebParityStatusArgs(["reports", "--bogus"]), {
   message: /Unknown argument: --bogus/,
 });
+assert.throws(() => parseWebParityStatusArgs(["reports", "--url"]), {
+  message: /--url requires a value/,
+});
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "orbifold-web-parity-status-"));
 try {
