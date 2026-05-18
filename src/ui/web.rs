@@ -516,6 +516,13 @@ impl WebOrbifoldApp {
                 ))
             })
             .unwrap_or_else(|| (UiPoint::new(0.0, 0.0), UiPoint::new(0.0, 0.0)));
+        let (velocity_start, velocity_end) = self
+            .app
+            .music_project
+            .lock()
+            .note_by_id(3)
+            .and_then(|note| layout.piano_note_velocity_drag_points(&note))
+            .unwrap_or_else(|| (UiPoint::new(0.0, 0.0), UiPoint::new(0.0, 0.0)));
         publish_automation_geometry_js(
             grid.x as f64,
             grid.y as f64,
@@ -531,6 +538,10 @@ impl WebOrbifoldApp {
             resize_start.y as f64,
             resize_end.x as f64,
             resize_end.y as f64,
+            velocity_start.x as f64,
+            velocity_start.y as f64,
+            velocity_end.x as f64,
+            velocity_end.y as f64,
             view_start as f64,
             view_beats as f64,
             min_pitch as f64,
@@ -2343,6 +2354,10 @@ export function publish_automation_geometry_js(
   resizeStartY,
   resizeEndX,
   resizeEndY,
+  velocityStartX,
+  velocityStartY,
+  velocityEndX,
+  velocityEndY,
   pianoViewStart,
   pianoViewBeats,
   pianoMinPitch,
@@ -2362,6 +2377,10 @@ export function publish_automation_geometry_js(
   document.body.dataset.orbifoldPianoResizeStartY = String(resizeStartY || 0);
   document.body.dataset.orbifoldPianoResizeEndX = String(resizeEndX || 0);
   document.body.dataset.orbifoldPianoResizeEndY = String(resizeEndY || 0);
+  document.body.dataset.orbifoldPianoVelocityStartX = String(velocityStartX || 0);
+  document.body.dataset.orbifoldPianoVelocityStartY = String(velocityStartY || 0);
+  document.body.dataset.orbifoldPianoVelocityEndX = String(velocityEndX || 0);
+  document.body.dataset.orbifoldPianoVelocityEndY = String(velocityEndY || 0);
   document.body.dataset.orbifoldPianoViewStart = String(pianoViewStart || 0);
   document.body.dataset.orbifoldPianoViewBeats = String(pianoViewBeats || 0);
   document.body.dataset.orbifoldPianoMinPitch = String(pianoMinPitch || 0);
@@ -3386,6 +3405,10 @@ extern "C" {
         resize_start_y: f64,
         resize_end_x: f64,
         resize_end_y: f64,
+        velocity_start_x: f64,
+        velocity_start_y: f64,
+        velocity_end_x: f64,
+        velocity_end_y: f64,
         piano_view_start: f64,
         piano_view_beats: f64,
         piano_min_pitch: f64,

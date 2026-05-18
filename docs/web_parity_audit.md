@@ -64,9 +64,9 @@ The headless smoke currently covers:
 - action dispatch, the documented browser shortcut mapping table, representative
   keyboard shortcut dispatch through the live canvas, actual shortcut-driven
   note nudge/length/pitch/velocity edits, and ignored Alt/repeat shortcut cases,
-- piano-roll double-click creation, note drag, edge resize, wheel pan/zoom,
-  arrangement/piano-ruler seeking, loop-end dragging, and workspace splitter
-  drags,
+- piano-roll double-click creation, note drag, edge resize, velocity-handle
+  drag, wheel pan/zoom, arrangement/piano-ruler seeking, loop-end dragging, and
+  workspace splitter drags,
 - browser project save/download and project open through real browser file
   inputs,
 - dirty-project open confirmation before creating a browser file input,

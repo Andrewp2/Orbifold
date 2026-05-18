@@ -205,6 +205,7 @@ async function runSmoke(browserWsUrl) {
     await verifyPianoGridDoubleClick(send, sessionId);
     await verifyPianoNoteDrag(send, sessionId);
     await verifyPianoNoteResize(send, sessionId);
+    await verifyPianoVelocityDrag(send, sessionId);
     await verifyTimelineAndLoopGestures(send, sessionId);
     await verifyPianoWheelNavigation(send, sessionId);
     await verifyWorkspaceResizeGestures(send, sessionId);
@@ -569,6 +570,45 @@ async function verifyPianoNoteDrag(send, sessionId) {
   );
 }
 
+async function verifyPianoVelocityDrag(send, sessionId) {
+  const geometry = await waitForPianoGeometry(send, sessionId, (geometry) => {
+    return (
+      geometry.velocityStartX > 0 &&
+      geometry.velocityStartY > 0 &&
+      geometry.velocityEndX > 0 &&
+      geometry.velocityEndY > 0
+    );
+  });
+  const before = await evaluateProjectState(send, sessionId);
+  const noteBefore = projectNoteById(before.project, 3);
+  if (!noteBefore) {
+    throw new Error(`piano velocity drag precondition found no note 3: ${before.project}`);
+  }
+
+  await dragPointer(send, sessionId, {
+    startX: geometry.velocityStartX,
+    startY: geometry.velocityStartY,
+    endX: geometry.velocityEndX,
+    endY: geometry.velocityEndY,
+  });
+
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) => {
+      const note = projectNoteById(state.project, 3);
+      return (
+        note &&
+        note.velocity > noteBefore.velocity &&
+        note.velocity >= 120 &&
+        state.lastPointerAction === "note.velocity.3" &&
+        state.lastPointerPhase === "commit"
+      );
+    },
+    "browser piano velocity drag did not update the note velocity"
+  );
+}
+
 async function verifyPianoGridDoubleClick(send, sessionId) {
   const geometry = await evaluatePianoGeometry(send, sessionId);
   if (geometry.addX <= 0 || geometry.addY <= 0) {
@@ -636,6 +676,10 @@ async function evaluatePianoGeometry(send, sessionId) {
         resizeStartY: Number(document.body.dataset.orbifoldPianoResizeStartY ?? 0),
         resizeEndX: Number(document.body.dataset.orbifoldPianoResizeEndX ?? 0),
         resizeEndY: Number(document.body.dataset.orbifoldPianoResizeEndY ?? 0),
+        velocityStartX: Number(document.body.dataset.orbifoldPianoVelocityStartX ?? 0),
+        velocityStartY: Number(document.body.dataset.orbifoldPianoVelocityStartY ?? 0),
+        velocityEndX: Number(document.body.dataset.orbifoldPianoVelocityEndX ?? 0),
+        velocityEndY: Number(document.body.dataset.orbifoldPianoVelocityEndY ?? 0),
         viewStart: Number(document.body.dataset.orbifoldPianoViewStart ?? 0),
         viewBeats: Number(document.body.dataset.orbifoldPianoViewBeats ?? 0),
         minPitch: Number(document.body.dataset.orbifoldPianoMinPitch ?? 0),

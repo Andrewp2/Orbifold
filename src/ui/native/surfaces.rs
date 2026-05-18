@@ -115,6 +115,21 @@ impl SurfaceRects {
     }
 
     #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_note_velocity_drag_points(
+        self,
+        note: &ClipNote,
+    ) -> Option<(UiPoint, UiPoint)> {
+        let rect = piano_velocity_hit_rects(note.clone(), self)
+            .into_iter()
+            .next()?;
+        let x = rect.x + rect.width * 0.5;
+        Some((
+            UiPoint::new(x, rect.y + rect.height * 0.5),
+            UiPoint::new(x, self.velocity_lane.y),
+        ))
+    }
+
+    #[cfg(feature = "web-app")]
     pub(in crate::ui) fn arrangement_ruler_point_for_fraction(self, fraction: f32) -> UiPoint {
         UiPoint::new(
             self.arrangement_ruler.x + self.arrangement_ruler.width * fraction.clamp(0.0, 1.0),
