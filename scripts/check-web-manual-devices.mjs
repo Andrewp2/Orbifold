@@ -304,8 +304,13 @@ async function runManualDeviceCheck() {
 
   report.states.beforeBrowserFileFlows = await evaluateProjectState();
   await promptEnter(
-    "Use the browser UI with real file pickers: save/open a .orbifold project, load a Scala .scl scale, load a Lumatone .ltn key map, import a supported WAV asset, reload the page, and confirm the state restores. Press Enter when finished."
+    "Use the browser UI with real file pickers: save/open a .orbifold project, load a Scala .scl scale, load a Lumatone .ltn key map, and import a supported WAV asset. Do not reload yet. Press Enter when finished."
   );
+  report.states.afterBrowserFileFlowsBeforeReload = await evaluateProjectState();
+  await promptEnter(
+    "Reload the browser page, wait for Orbifold to restore the project, scale, key map, and imported asset state, then press Enter."
+  );
+  await waitForOrbifoldReady();
   report.states.afterBrowserFileFlows = await evaluateProjectState();
   const browserFileFlows = await confirm(
     "Did browser project/scale/key-map/asset file flows and reload persistence work?"
@@ -321,9 +326,10 @@ async function runManualDeviceCheck() {
     scalaPath: report.states.afterBrowserFileFlows.scalaPath,
     lumatonePath: report.states.afterBrowserFileFlows.lumatonePath,
     lumatoneLoaded: report.states.afterBrowserFileFlows.lumatoneLoaded,
-    downloadFileName: report.states.afterBrowserFileFlows.downloadFileName,
-    downloadSize: report.states.afterBrowserFileFlows.downloadSize,
+    downloadFileName: report.states.afterBrowserFileFlowsBeforeReload.downloadFileName,
+    downloadSize: report.states.afterBrowserFileFlowsBeforeReload.downloadSize,
     before: pickBrowserFileFlowEvidence(report.states.beforeBrowserFileFlows),
+    afterImport: pickBrowserFileFlowEvidence(report.states.afterBrowserFileFlowsBeforeReload),
     after: pickBrowserFileFlowEvidence(report.states.afterBrowserFileFlows),
   });
 

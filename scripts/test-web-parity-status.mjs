@@ -148,6 +148,11 @@ function validManualReport() {
         timeOrigin: 1000,
         frameCount: 10,
       }),
+      afterImport: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 11,
+      }),
       after: fileFlowState({
         navigationType: "reload",
         timeOrigin: 2000,
@@ -292,6 +297,11 @@ function validManualReport() {
         navigationType: "navigate",
         timeOrigin: 1000,
         frameCount: 10,
+      }),
+      afterBrowserFileFlowsBeforeReload: fileFlowState({
+        navigationType: "navigate",
+        timeOrigin: 1000,
+        frameCount: 11,
       }),
       afterBrowserFileFlows: {
         frameCount: 10,

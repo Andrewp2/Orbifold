@@ -265,20 +265,33 @@ export function validateManualDeviceReport(report) {
   }
 
   requireObject(report.states.beforeBrowserFileFlows, "states.beforeBrowserFileFlows");
+  requireObject(
+    report.states.afterBrowserFileFlowsBeforeReload,
+    "states.afterBrowserFileFlowsBeforeReload"
+  );
   requireObject(report.states.afterBrowserFileFlows, "states.afterBrowserFileFlows");
+  requirePositiveNumber(
+    report.states.afterBrowserFileFlowsBeforeReload.frameCount,
+    "states.afterBrowserFileFlowsBeforeReload.frameCount"
+  );
   requirePositiveNumber(
     report.states.afterBrowserFileFlows.frameCount,
     "states.afterBrowserFileFlows.frameCount"
   );
   const browserFileEvidence = requirePassedCheckEvidence("manualBrowserFileFlows");
   requireObject(browserFileEvidence.before, "manualBrowserFileFlows.before");
+  requireObject(browserFileEvidence.afterImport, "manualBrowserFileFlows.afterImport");
   requireObject(browserFileEvidence.after, "manualBrowserFileFlows.after");
   requireBrowserFileFlowCheckpoint(browserFileEvidence.before, "manualBrowserFileFlows.before");
+  requireBrowserFileFlowCheckpoint(
+    browserFileEvidence.afterImport,
+    "manualBrowserFileFlows.afterImport"
+  );
   requireBrowserFileFlowCheckpoint(browserFileEvidence.after, "manualBrowserFileFlows.after");
   if (
     !(
       Number(browserFileEvidence.after.timeOrigin) >
-      Number(browserFileEvidence.before.timeOrigin)
+      Number(browserFileEvidence.afterImport.timeOrigin)
     )
   ) {
     throw new Error("manualBrowserFileFlows evidence should show a browser reload checkpoint");
@@ -300,14 +313,44 @@ export function validateManualDeviceReport(report) {
     );
   }
   requirePositiveNumber(browserFileEvidence.downloadSize, "manualBrowserFileFlows.downloadSize");
+  requireTruthy(
+    browserFileEvidence.afterImport.project,
+    "manualBrowserFileFlows.afterImport.project"
+  );
+  if (!String(browserFileEvidence.afterImport.project).includes("orbifold_project=1")) {
+    throw new Error(
+      "manualBrowserFileFlows.afterImport.project should contain an orbifold project marker"
+    );
+  }
   requireTruthy(browserFileEvidence.project, "manualBrowserFileFlows.project");
   if (!String(browserFileEvidence.project).includes("orbifold_project=1")) {
     throw new Error("manualBrowserFileFlows.project should contain an orbifold project marker");
   }
+  requirePositiveNumber(
+    browserFileEvidence.afterImport.assetCount,
+    "manualBrowserFileFlows.afterImport.assetCount"
+  );
   requirePositiveNumber(browserFileEvidence.assetCount, "manualBrowserFileFlows.assetCount");
+  requireTruthy(
+    browserFileEvidence.afterImport.scaleDescription,
+    "manualBrowserFileFlows.afterImport.scaleDescription"
+  );
   requireTruthy(browserFileEvidence.scaleDescription, "manualBrowserFileFlows.scaleDescription");
+  requireTruthy(
+    browserFileEvidence.afterImport.scalaPath,
+    "manualBrowserFileFlows.afterImport.scalaPath"
+  );
   requireTruthy(browserFileEvidence.scalaPath, "manualBrowserFileFlows.scalaPath");
+  requireTruthy(
+    browserFileEvidence.afterImport.lumatonePath,
+    "manualBrowserFileFlows.afterImport.lumatonePath"
+  );
   requireTruthy(browserFileEvidence.lumatonePath, "manualBrowserFileFlows.lumatonePath");
+  requireEqual(
+    browserFileEvidence.afterImport.lumatoneLoaded,
+    true,
+    "manualBrowserFileFlows.afterImport.lumatoneLoaded"
+  );
   requireEqual(browserFileEvidence.lumatoneLoaded, true, "manualBrowserFileFlows.lumatoneLoaded");
 
   requireObject(report.states.beforeShortcutParity, "states.beforeShortcutParity");
