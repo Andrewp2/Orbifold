@@ -103,6 +103,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
         "node scripts/test-web-parity-gate.mjs",
+        "node scripts/test-web-smoke-helpers.mjs",
         "node scripts/test-web-visual-layout-helpers.mjs",
         "cargo clippy --all-targets -- -D warnings",
     ] {
@@ -642,12 +643,25 @@ fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
 #[test]
 fn web_smoke_script_checks_headless_runtime_readiness() {
     let script = include_str!("../scripts/check-web-smoke.mjs");
+    let behavior_test = include_str!("../scripts/test-web-smoke-helpers.mjs");
 
     for required in [
         "ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "--disable-dev-shm-usage",
+        "isCliEntrypoint",
+        "export function browserShortcutMappingCases",
+        "export function persistedNoteCount",
+        "export function projectNotes",
+        "export function latestProjectNote",
+        "export function projectNoteById",
+        "export function thirdNoteStartBeat",
+        "export function thirdNoteDurationBeat",
+        "export function projectIncludesLoopBeats",
+        "export function urlForSmokeVariant",
+        "export function isQuantizedToSixteenth",
+        "export function smokeFailures",
         "Runtime.exceptionThrown",
         "Runtime.consoleAPICalled",
         "Network.loadingFailed",
@@ -907,6 +921,26 @@ fn web_smoke_script_checks_headless_runtime_readiness() {
         assert!(
             script.contains(required),
             "scripts/check-web-smoke.mjs should verify {required}"
+        );
+    }
+
+    for required in [
+        "persistedNoteCount(project)",
+        "projectNotes(project)",
+        "latestProjectNote(project).id",
+        "projectNoteById(project, 2).velocity",
+        "thirdNoteStartBeat(project)",
+        "thirdNoteDurationBeat(project)",
+        "projectIncludesLoopBeats({ project, loopBeats: 16 })",
+        "isQuantizedToSixteenth(1.125)",
+        "urlForSmokeVariant(\"reload\", \"https://example.invalid/Orbifold/?old=1\")",
+        "browserShortcutMappingCases()",
+        "smokeFailures([",
+        "web smoke helper behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-smoke-helpers.mjs should behavior-test {required}"
         );
     }
 }

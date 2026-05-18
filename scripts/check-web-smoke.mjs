@@ -4,79 +4,90 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const url = process.argv[2];
-if (!url) {
-  console.error("usage: check-web-smoke.mjs <url>");
-  process.exit(2);
-}
-
-if (typeof WebSocket !== "function") {
-  console.error("Node.js with a global WebSocket implementation is required.");
-  process.exit(2);
-}
-
-const timeoutMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_TIMEOUT_MS", 15_000);
-const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
-const settleMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_SETTLE_MS", 1_000);
+let url = "";
+let timeoutMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_TIMEOUT_MS", 15_000);
+let devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let settleMs = numberFromEnv("ORBIFOLD_WEB_SMOKE_SETTLE_MS", 1_000);
 const smokeScaleDescription = "Browser 5-EDO";
 const smokeScalaProjectLine = "scala_path=browser_5_edo.scl";
 const smokeLumatoneProjectLine = "lumatone_path=classic.ltn";
 const smokeSampleInstrumentProjectLine =
   "sample_instrument_path=browser_assets/samples/smoke_sample.wav";
-const chromePath = findChrome();
-if (!chromePath) {
-  console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
-  process.exit(2);
-}
-
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-smoke-"));
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--remote-debugging-port=0",
-    "--enable-unsafe-webgpu",
-    "--ignore-gpu-blocklist",
-    "--disable-dev-shm-usage",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--no-sandbox",
-    "--window-size=1600,1000",
-    `--user-data-dir=${profile}`,
-    "about:blank",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] }
-);
-
 let stdout = "";
 let stderr = "";
-chrome.stdout.on("data", (chunk) => {
-  stdout += chunk;
-});
-chrome.stderr.on("data", (chunk) => {
-  stderr += chunk;
-});
 
-try {
-  const browserWsUrl = await waitForDevtoolsEndpoint();
-  const events = await runSmoke(browserWsUrl);
-  const failures = smokeFailures(events);
-  if (failures.length > 0) {
-    console.error("Orbifold web smoke failed:");
-    for (const failure of failures) {
-      console.error(`- ${failure}`);
-    }
-    process.exitCode = 1;
-  } else {
-    console.log(`Orbifold web smoke passed for ${url}`);
+if (isCliEntrypoint()) {
+  await runSmokeCli(process.argv.slice(2));
+}
+
+async function runSmokeCli(args) {
+  url = args[0] ?? "";
+  if (!url) {
+    console.error("usage: check-web-smoke.mjs <url>");
+    process.exit(2);
   }
-} catch (error) {
-  console.error(`Orbifold web smoke failed: ${error.message ?? error}`);
-  process.exitCode = 1;
-} finally {
-  await terminateChrome(chrome);
-  await removeProfile(profile);
+
+  if (typeof WebSocket !== "function") {
+    console.error("Node.js with a global WebSocket implementation is required.");
+    process.exit(2);
+  }
+
+  const chromePath = findChrome();
+  if (!chromePath) {
+    console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
+    process.exit(2);
+  }
+
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-smoke-"));
+  const chrome = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--remote-debugging-port=0",
+      "--enable-unsafe-webgpu",
+      "--ignore-gpu-blocklist",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-sandbox",
+      "--window-size=1600,1000",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  stdout = "";
+  stderr = "";
+  chrome.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  chrome.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const browserWsUrl = await waitForDevtoolsEndpoint();
+    const events = await runSmoke(browserWsUrl);
+    const failures = smokeFailures(events);
+    if (failures.length > 0) {
+      console.error("Orbifold web smoke failed:");
+      for (const failure of failures) {
+        console.error(`- ${failure}`);
+      }
+      process.exitCode = 1;
+    } else {
+      console.log(`Orbifold web smoke passed for ${url}`);
+    }
+  } catch (error) {
+    console.error(`Orbifold web smoke failed: ${error.message ?? error}`);
+    process.exitCode = 1;
+  } finally {
+    await terminateChrome(chrome);
+    await removeProfile(profile);
+  }
 }
 
 function numberFromEnv(name, fallback) {
@@ -2260,7 +2271,7 @@ async function verifyBrowserShortcutMapping(send, sessionId) {
   }
 }
 
-function browserShortcutMappingCases() {
+export function browserShortcutMappingCases() {
   return [
     shortcutCase("Ctrl+N", { key: "n", ctrlKey: true }, "file.new"),
     shortcutCase("Ctrl+O", { key: "o", ctrlKey: true }, "file.open"),
@@ -2573,11 +2584,11 @@ async function evaluateProjectState(send, sessionId) {
   return result.result.value ?? {};
 }
 
-function persistedNoteCount(projectText) {
+export function persistedNoteCount(projectText) {
   return (projectText.match(/\nnote\t/g) ?? []).length;
 }
 
-function projectNotes(projectText) {
+export function projectNotes(projectText) {
   return projectText
     .split("\n")
     .map((line) => line.split("\t"))
@@ -2594,15 +2605,15 @@ function projectNotes(projectText) {
     }));
 }
 
-function latestProjectNote(projectText) {
+export function latestProjectNote(projectText) {
   return projectNotes(projectText).sort((left, right) => right.id - left.id)[0] ?? null;
 }
 
-function projectNoteById(projectText, id) {
+export function projectNoteById(projectText, id) {
   return projectNotes(projectText).find((note) => note.id === id) ?? null;
 }
 
-function thirdNoteStartBeat(projectText) {
+export function thirdNoteStartBeat(projectText) {
   for (const line of projectText.split("\n")) {
     const parts = line.split("\t");
     if (parts[0] === "note" && parts[1] === "3") {
@@ -2612,7 +2623,7 @@ function thirdNoteStartBeat(projectText) {
   return Number.NaN;
 }
 
-function thirdNoteDurationBeat(projectText) {
+export function thirdNoteDurationBeat(projectText) {
   for (const line of projectText.split("\n")) {
     const parts = line.split("\t");
     if (parts[0] === "note" && parts[1] === "3") {
@@ -2622,17 +2633,17 @@ function thirdNoteDurationBeat(projectText) {
   return Number.NaN;
 }
 
-function projectIncludesLoopBeats(state) {
+export function projectIncludesLoopBeats(state) {
   return state.project.includes(`\nloop_beats=${state.loopBeats}\n`);
 }
 
-function urlForSmokeVariant(label) {
-  const parsed = new URL(url);
+export function urlForSmokeVariant(label, targetUrl = url) {
+  const parsed = new URL(targetUrl);
   parsed.searchParams.set("orbifold_smoke", label);
   return parsed.href;
 }
 
-function isQuantizedToSixteenth(beat) {
+export function isQuantizedToSixteenth(beat) {
   return Math.abs(beat * 16 - Math.round(beat * 16)) < 0.0001;
 }
 
@@ -2703,7 +2714,7 @@ async function evaluateOrbifoldState(send, sessionId) {
   return result.result.value;
 }
 
-function smokeFailures(events) {
+export function smokeFailures(events) {
   const failures = [];
   for (const event of events) {
     if (event.method === "Runtime.exceptionThrown") {
@@ -2752,4 +2763,8 @@ async function removeProfile(profile) {
   } catch {
     // Temporary browser profile cleanup is best-effort.
   }
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
