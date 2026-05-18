@@ -48,6 +48,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
+./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ```
 
 The headless smoke currently covers:
@@ -90,6 +91,13 @@ headless smoke against the deployed URL after deployment, which verifies the
 published wasm runtime path in CI. Manual browser/device checks are still needed
 for audio output, real Web MIDI hardware, and visual inspection.
 
+The visual capture script launches headless Chrome with WebGPU enabled, waits
+for the live runtime to render at compact, desktop, high-DPI, and 4K viewports,
+then writes PNGs and a manifest under `screenshots/web/`. It catches fallback
+startup, canvas coverage regressions, and blank headless captures before
+review. Inspect the images yourself; this is visual evidence, not a substitute
+for a human layout pass.
+
 ## Manual Evidence
 
 Automated checks do not cover all browser parity risks. Record results for
@@ -104,6 +112,8 @@ these manual checks before treating web as parity-complete:
   local confirmation of the same runtime gate the Pages workflow uses.
 - Run the browser UI on a high-DPI or 4K display and inspect layout scale, text
   overlap, piano-roll labels, panel resize handles, and canvas coverage.
+- Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
+  inspect the compact, desktop, high-DPI, and 4K PNGs it writes.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real

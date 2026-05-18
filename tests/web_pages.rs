@@ -100,6 +100,52 @@ fn web_dist_check_script_verifies_pages_artifact_shape() {
 }
 
 #[test]
+fn web_visual_capture_script_records_browser_layout_evidence() {
+    let script = include_str!("../scripts/capture-web-visuals.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+
+    for required in [
+        "usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]",
+        "--enable-unsafe-webgpu",
+        "--ignore-gpu-blocklist",
+        "compact-1200x760",
+        "desktop-1600x1000",
+        "hidpi-1920x1080-dpr2",
+        "wide-3840x2160",
+        "Page.captureScreenshot",
+        "manifest.json",
+        "inflateSync",
+        "screenshot is blank/transparent",
+        "nonTransparentPixels",
+        "paethPredictor",
+        "runtime-ready",
+        "runtime-failed",
+        "canvasClientWidth",
+        "canvasClientHeight",
+        "canvasWidth",
+        "canvasHeight",
+        "devicePixelRatio",
+        "orbifoldPianoGridWidth",
+        "orbifoldPianoRollHeight",
+        "orbifoldRightPanelWidth",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/capture-web-visuals.mjs should capture web visual parity evidence: {required}"
+        );
+    }
+
+    for docs in [readme, audit, checklist] {
+        assert!(
+            docs.contains("./scripts/capture-web-visuals.mjs"),
+            "web visual capture workflow should be documented"
+        );
+    }
+}
+
+#[test]
 fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-live.mjs");
 

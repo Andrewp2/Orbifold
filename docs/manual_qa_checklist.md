@@ -266,6 +266,8 @@ musically usable.
   relative asset references.
 - Run `./scripts/check-web-smoke.mjs` against the deployed Pages URL or confirm
   the Pages workflow's deployed smoke step passed.
+- Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
+  inspect the compact, desktop, high-DPI, and 4K PNGs under `screenshots/web/`.
 - Confirm browser `Open` refuses dirty replacement on the first click/shortcut
   and opens the picker only after the second confirmed action.
 - Confirm browser `Save`/`Save As` downloads `.orbifold` project text and the

@@ -68,6 +68,7 @@ Orbifold has a browser build for GitHub Pages:
 python3 -m http.server 4173 --directory dist
 ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
+./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ```
 
 The smoke check launches headless Chrome with WebGPU enabled and fails on
@@ -90,6 +91,8 @@ session, browser-loaded Scala/key-map resources, browser-imported sample
 instrument, browser-imported asset, persisted panel-visibility settings, and the
 web UI-scale reload path restore from browser storage. It also resizes Chrome to
 a high-DPI viewport to catch canvas scaling regressions.
+The visual capture script writes compact, desktop, high-DPI, and 4K browser
+screenshots plus a manifest under `screenshots/web/` for manual inspection.
 Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
 automated evidence above from manual checks that require a real browser,
 deployed Pages site, audio output, and Web MIDI hardware.
@@ -305,9 +308,10 @@ cargo check
 cargo test
 cargo run -- --screenshot
 cargo run -- --screenshot-size=3840x2160
+./scripts/capture-web-visuals.mjs https://andrewp2.github.io/Orbifold/
 ```
 
-Then inspect `screenshots/latest.png`.
+Then inspect `screenshots/latest.png` and the latest `screenshots/web/` run.
 
 ## Error Handling
 
