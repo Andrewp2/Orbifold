@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveReportPath } from "./check-web-manual-report.mjs";
 import {
   compareWebArtifactFingerprints,
@@ -13,55 +13,57 @@ import {
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
-const options = parseArgs(process.argv.slice(2));
 
-if (!options.url) {
-  console.error(
-    "usage: scripts/check-web-parity-gate.mjs <https://pages-url/> [--report reports] [--visual-out screenshots/web-parity] [--skip-visual-capture]"
-  );
-  process.exit(2);
-}
-
-const gateReport = {
-  schema: "orbifold.web_parity_gate.v1",
-  generatedAt: new Date().toISOString(),
-  targetUrl: options.url,
-  manualReport: options.report,
-  visualOut: options.visualOut,
-  skippedVisualCapture: options.skipVisualCapture,
-  steps: [],
-};
-
-try {
-  if (options.skipVisualCapture) {
-    recordSkippedVisualCapture();
-    throw new Error("visual capture was skipped; rerun without --skip-visual-capture for parity");
+if (isCliEntrypoint()) {
+  const options = parseParityGateArgs(process.argv.slice(2));
+  if (!options.url) {
+    console.error(
+      "usage: scripts/check-web-parity-gate.mjs <https://pages-url/> [--report reports] [--visual-out screenshots/web-parity] [--skip-visual-capture]"
+    );
+    process.exit(2);
   }
-  await runStep("manualDeviceReport", ["check-web-manual-report.mjs", options.report]);
-  await verifyManualReportTarget(options.report, options.url);
-  await verifyManualReportArtifact(options.report, options.url);
-  await runStep("deployedArtifact", ["check-web-live.mjs", options.url]);
-  await runStep("deployedLayout", ["check-web-layout.mjs", options.url]);
-  await runStep("deployedSmoke", ["check-web-smoke.mjs", options.url]);
-  await runStep("deployedVisualCapture", [
-    "capture-web-visuals.mjs",
-    options.url,
-    "--out",
-    options.visualOut,
-  ]);
-  gateReport.passed = true;
-  console.log("\nOrbifold web parity gate passed.");
-} catch (error) {
-  gateReport.passed = false;
-  gateReport.error = String(error?.stack || error?.message || error);
-  console.error(`\nOrbifold web parity gate failed: ${error?.message ?? error}`);
-  process.exitCode = 1;
-} finally {
-  const reportPath = writeGateReport(gateReport);
-  console.log(`Web parity gate report: ${reportPath}`);
+  await runParityGate(options);
 }
 
-function parseArgs(args) {
+export async function runParityGate(options) {
+  const gateReport = createParityGateReport(options);
+
+  try {
+    if (options.skipVisualCapture) {
+      recordSkippedVisualCapture(gateReport);
+      throw new Error("visual capture was skipped; rerun without --skip-visual-capture for parity");
+    }
+    await runStep(gateReport, "manualDeviceReport", [
+      "check-web-manual-report.mjs",
+      options.report,
+    ]);
+    await verifyManualReportTarget(gateReport, options.report, options.url);
+    await verifyManualReportArtifact(gateReport, options.report, options.url);
+    await runStep(gateReport, "deployedArtifact", ["check-web-live.mjs", options.url]);
+    await runStep(gateReport, "deployedLayout", ["check-web-layout.mjs", options.url]);
+    await runStep(gateReport, "deployedSmoke", ["check-web-smoke.mjs", options.url]);
+    await runStep(gateReport, "deployedVisualCapture", [
+      "capture-web-visuals.mjs",
+      options.url,
+      "--out",
+      options.visualOut,
+    ]);
+    gateReport.passed = true;
+    console.log("\nOrbifold web parity gate passed.");
+  } catch (error) {
+    gateReport.passed = false;
+    gateReport.error = String(error?.stack || error?.message || error);
+    console.error(`\nOrbifold web parity gate failed: ${error?.message ?? error}`);
+    process.exitCode = 1;
+  } finally {
+    const reportPath = writeGateReport(gateReport);
+    console.log(`Web parity gate report: ${reportPath}`);
+  }
+
+  return gateReport;
+}
+
+export function parseParityGateArgs(args) {
   const parsed = {
     url: "",
     report: "reports",
@@ -92,7 +94,19 @@ function parseArgs(args) {
   return parsed;
 }
 
-function runStep(name, scriptAndArgs) {
+export function createParityGateReport(options, generatedAt = new Date().toISOString()) {
+  return {
+    schema: "orbifold.web_parity_gate.v1",
+    generatedAt,
+    targetUrl: options.url,
+    manualReport: options.report,
+    visualOut: options.visualOut,
+    skippedVisualCapture: options.skipVisualCapture,
+    steps: [],
+  };
+}
+
+function runStep(gateReport, name, scriptAndArgs) {
   const scriptPath = path.join(scriptDir, scriptAndArgs[0]);
   const args = [scriptPath, ...scriptAndArgs.slice(1)];
   const startedAt = new Date();
@@ -139,7 +153,7 @@ function runStep(name, scriptAndArgs) {
   });
 }
 
-function recordSkippedVisualCapture() {
+function recordSkippedVisualCapture(gateReport) {
   gateReport.steps.push({
     name: "deployedVisualCapture",
     command: ["skipped"],
@@ -161,11 +175,11 @@ function writeGateReport(report) {
   return reportPath;
 }
 
-async function verifyManualReportTarget(reportTarget, expectedUrl) {
+async function verifyManualReportTarget(gateReport, reportTarget, expectedUrl) {
   const reportPath = await resolveReportPath(reportTarget);
   const report = JSON.parse(await fs.promises.readFile(reportPath, "utf8"));
-  const actual = normalizeUrl(report.targetUrl);
-  const expected = normalizeUrl(expectedUrl);
+  const actual = normalizeParityGateUrl(report.targetUrl);
+  const expected = normalizeParityGateUrl(expectedUrl);
   const step = {
     name: "manualReportTarget",
     command: ["read", reportPath],
@@ -183,7 +197,7 @@ async function verifyManualReportTarget(reportTarget, expectedUrl) {
   }
 }
 
-async function verifyManualReportArtifact(reportTarget, expectedUrl) {
+async function verifyManualReportArtifact(gateReport, reportTarget, expectedUrl) {
   const reportPath = await resolveReportPath(reportTarget);
   const report = JSON.parse(await fs.promises.readFile(reportPath, "utf8"));
   const actual = await fetchWebArtifactFingerprint(expectedUrl);
@@ -197,7 +211,7 @@ async function verifyManualReportArtifact(reportTarget, expectedUrl) {
     signal: null,
     stdoutTail:
       differences.length === 0
-        ? `manual report artifact matches live ${normalizeUrl(expectedUrl)}`
+        ? `manual report artifact matches live ${normalizeParityGateUrl(expectedUrl)}`
         : "",
     stderrTail: differences.slice(0, 10).join("\n"),
   };
@@ -210,7 +224,7 @@ async function verifyManualReportArtifact(reportTarget, expectedUrl) {
   }
 }
 
-function normalizeUrl(value) {
+export function normalizeParityGateUrl(value) {
   const url = new URL(value);
   url.hash = "";
   url.search = "";
@@ -218,6 +232,10 @@ function normalizeUrl(value) {
     url.pathname = `${url.pathname}/`;
   }
   return url.href;
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
 function shellQuote(value) {

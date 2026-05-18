@@ -43,8 +43,10 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Test web manual report validator
-        run: node scripts/test-web-manual-report-validator.mjs
+      - name: Test web parity evidence scripts
+        run: |
+          node scripts/test-web-manual-report-validator.mjs
+          node scripts/test-web-parity-gate.mjs
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

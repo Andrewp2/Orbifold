@@ -99,6 +99,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "cargo fmt --check",
         "cargo test",
         "node scripts/test-web-manual-report-validator.mjs",
+        "node scripts/test-web-parity-gate.mjs",
         "cargo clippy --all-targets -- -D warnings",
     ] {
         assert!(
@@ -394,6 +395,7 @@ fn web_manual_report_validator_requires_real_device_evidence() {
 #[test]
 fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
     let script = include_str!("../scripts/check-web-parity-gate.mjs");
+    let behavior_test = include_str!("../scripts/test-web-parity-gate.mjs");
     let readme = include_str!("../README.md");
     let audit = include_str!("../docs/web_parity_audit.md");
     let checklist = include_str!("../docs/manual_qa_checklist.md");
@@ -423,10 +425,32 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         "manual report artifact matches live",
         "deployedVisualCapture",
         "Orbifold web parity gate passed",
+        "isCliEntrypoint",
+        "export async function runParityGate",
+        "export function parseParityGateArgs",
+        "export function createParityGateReport",
+        "export function normalizeParityGateUrl",
     ] {
         assert!(
             script.contains(required),
             "scripts/check-web-parity-gate.mjs should tie web parity evidence together: {required}"
+        );
+    }
+
+    for required in [
+        "parseParityGateArgs",
+        "normalizeParityGateUrl",
+        "createParityGateReport",
+        "compareWebArtifactFingerprints",
+        "Unknown argument: --bogus",
+        "screenshots/final",
+        "rootUrl expected https://example.invalid/Orbifold/, got https://example.invalid/Other/",
+        "wasm sha256 expected",
+        "web parity gate behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-parity-gate.mjs should behavior-test {required}"
         );
     }
 
