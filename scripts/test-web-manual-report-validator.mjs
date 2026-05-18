@@ -25,6 +25,20 @@ assert.doesNotThrow(() => validateManualDeviceReport(report));
 
 assertRejects(
   withChange(report, (draft) => {
+    draft.checks.push({ name: "diagnosticExtra", pass: false, evidence: {} });
+  }),
+  "checks.diagnosticExtra.pass expected true"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.push(structuredClone(draft.checks[0]));
+  }),
+  `checks.${report.checks[0].name} should appear exactly once`
+);
+
+assertRejects(
+  withChange(report, (draft) => {
     draft.browserEvents.push({
       method: "Runtime.consoleAPICalled",
       params: {

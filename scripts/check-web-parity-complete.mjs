@@ -93,6 +93,9 @@ export function validateParityCompletionReport(report, options = {}) {
   requireTruthy(report.manualReportPath, "manualReportPath");
   requireTruthy(report.visualOut, "visualOut");
 
+  requireUniqueStepNames(report.steps);
+  requireEveryStepPassed(report.steps);
+
   const stepsByName = new Map(report.steps.map((step) => [step.name, step]));
   for (const name of requiredSteps) {
     const step = stepsByName.get(name);
@@ -326,6 +329,24 @@ function requireVisualEvidence(capture, label) {
   requireAtLeast(Number(capture.snapshotStats.itemCount), 10, `${label}.snapshotStats.itemCount`);
   if (Number(capture.snapshotStats.unsupportedCount) >= Number(capture.snapshotStats.itemCount)) {
     throw new Error(`${label}.snapshotStats unsupported items should not cover the whole capture`);
+  }
+}
+
+function requireUniqueStepNames(steps) {
+  const seen = new Set();
+  for (let index = 0; index < steps.length; index += 1) {
+    const name = steps[index]?.name;
+    requireTruthy(name, `steps.${index}.name`);
+    if (seen.has(name)) {
+      throw new Error(`steps.${name} should appear exactly once`);
+    }
+    seen.add(name);
+  }
+}
+
+function requireEveryStepPassed(steps) {
+  for (const step of steps) {
+    requireEqual(step.exitCode, 0, `steps.${step.name}.exitCode`);
   }
 }
 

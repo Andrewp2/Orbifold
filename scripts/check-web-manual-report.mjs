@@ -118,6 +118,9 @@ export function validateManualDeviceReport(report) {
     return evidence;
   };
 
+  requireUniqueCheckNames(report.checks);
+  requireEveryCheckPassed(report.checks);
+
   for (const name of requiredChecks) {
     requirePassedCheck(name);
   }
@@ -503,6 +506,24 @@ function requireRequiredWorkflows(evidence, label, requiredWorkflows) {
     if (!evidence.requiredWorkflows.includes(workflow)) {
       throw new Error(`${label}.requiredWorkflows should include ${workflow}`);
     }
+  }
+}
+
+function requireUniqueCheckNames(checks) {
+  const seen = new Set();
+  for (let index = 0; index < checks.length; index += 1) {
+    const name = checks[index]?.name;
+    requireTruthy(name, `checks.${index}.name`);
+    if (seen.has(name)) {
+      throw new Error(`checks.${name} should appear exactly once`);
+    }
+    seen.add(name);
+  }
+}
+
+function requireEveryCheckPassed(checks) {
+  for (const check of checks) {
+    requireEqual(check.pass, true, `checks.${check.name}.pass`);
   }
 }
 

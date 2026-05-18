@@ -76,6 +76,21 @@ assertRejects(
 
 assertRejects(
   withChange(gateReport, (draft) => {
+    draft.steps.push(step("diagnosticExtra", draft.generatedAt, "extra diagnostic failed"));
+    draft.steps.at(-1).exitCode = 1;
+  }),
+  "steps.diagnosticExtra.exitCode expected 0"
+);
+
+assertRejects(
+  withChange(gateReport, (draft) => {
+    draft.steps.push(structuredClone(draft.steps[0]));
+  }),
+  `steps.${gateReport.steps[0].name} should appear exactly once`
+);
+
+assertRejects(
+  withChange(gateReport, (draft) => {
     draft.steps.find((step) => step.name === "deployedVisualCapture").command = ["skipped"];
   }),
   "steps.deployedVisualCapture.command should not be skipped"
