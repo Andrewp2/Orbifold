@@ -177,11 +177,12 @@ these manual checks before treating web as parity-complete:
   user confirmation, real browser click, audible Web Audio sample, real MIDI
   input, MIDI recording evidence field, manual file/shortcut/piano-roll parity
   confirmation, and deployed artifact fingerprint passes validation. The
-  validator also requires the verifier's host, Chrome, real click-coordinate,
-  frame-state, and timestamp metadata, and rejects reports that recorded browser
-  runtime exceptions, console errors/assertions, network load failures, or
-  browser log errors, so unchecked or partial JSON cannot stand in for the
-  browser session.
+  validator also requires evidence fields for downloaded project bytes, imported
+  assets, loaded scale/key-map state, shortcut state, piano-roll geometry,
+  verifier host, Chrome, real click-coordinate, frame-state, and timestamp
+  metadata, and rejects reports that recorded browser runtime exceptions,
+  console errors/assertions, network load failures, or browser log errors, so
+  unchecked or partial JSON cannot stand in for the browser session.
 - Run `./scripts/check-web-parity-status.mjs reports/ --url https://<user>.github.io/<repo>/`
   when you need a quick diagnostic of which saved evidence artifact is missing
   for the deployed target. This is an orientation check only; it does not

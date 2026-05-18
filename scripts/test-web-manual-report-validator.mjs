@@ -73,6 +73,27 @@ assertRejects(
   "states.afterPianoRollParity.frameCount should be a positive number"
 );
 
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find((check) => check.name === "manualBrowserFileFlows").evidence.assetCount = 0;
+  }),
+  "manualBrowserFileFlows.assetCount should be a positive number"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find((check) => check.name === "manualShortcutParity").evidence.lastAction = "";
+  }),
+  "manualShortcutParity.lastAction should be present"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find((check) => check.name === "manualPianoRollParity").evidence.pianoGridWidth = 0;
+  }),
+  "manualPianoRollParity.pianoGridWidth should be a positive number"
+);
+
 console.log("manual web device report validator behavior ok");
 
 function assertRejects(candidate, message) {
@@ -98,9 +119,6 @@ function validManualReport() {
     "manualAudibleWebAudio",
     "webMidiInputsDiscovered",
     "webMidiConnectedState",
-    "manualBrowserFileFlows",
-    "manualShortcutParity",
-    "manualPianoRollParity",
     "manualDeviceVerifierCompleted",
   ].map((name) => ({ name, pass: true, evidence: {} }));
   checks.push({
@@ -123,6 +141,38 @@ function validManualReport() {
     evidence: {
       beforeNoteCount: 2,
       afterNoteCount: 3,
+    },
+  });
+  checks.push({
+    name: "manualBrowserFileFlows",
+    pass: true,
+    evidence: {
+      downloadSize: 128,
+      assetCount: 1,
+      scaleDescription: "Browser 5-EDO",
+      lumatonePath: "classic.ltn",
+      lumatoneLoaded: true,
+    },
+  });
+  checks.push({
+    name: "manualShortcutParity",
+    pass: true,
+    evidence: {
+      lastAction: "ui.scale_up",
+      noteCount: 3,
+      uiScale: 1.1,
+    },
+  });
+  checks.push({
+    name: "manualPianoRollParity",
+    pass: true,
+    evidence: {
+      noteCount: 3,
+      pianoViewBeats: 16,
+      pianoGridWidth: 800,
+      pianoGridHeight: 420,
+      pianoRollHeight: 500,
+      rightPanelWidth: 300,
     },
   });
 

@@ -96,6 +96,11 @@ export function validateManualDeviceReport(report) {
     requireEqual(check.pass, true, `checks.${name}.pass`);
     return check;
   };
+  const requirePassedCheckEvidence = (name) => {
+    const evidence = requirePassedCheck(name).evidence;
+    requireObject(evidence, `checks.${name}.evidence`);
+    return evidence;
+  };
 
   for (const name of requiredChecks) {
     requirePassedCheck(name);
@@ -230,21 +235,35 @@ export function validateManualDeviceReport(report) {
     report.states.afterBrowserFileFlows.frameCount,
     "states.afterBrowserFileFlows.frameCount"
   );
-  requirePassedCheck("manualBrowserFileFlows");
+  const browserFileEvidence = requirePassedCheckEvidence("manualBrowserFileFlows");
+  requirePositiveNumber(browserFileEvidence.downloadSize, "manualBrowserFileFlows.downloadSize");
+  requirePositiveNumber(browserFileEvidence.assetCount, "manualBrowserFileFlows.assetCount");
+  requireTruthy(browserFileEvidence.scaleDescription, "manualBrowserFileFlows.scaleDescription");
+  requireTruthy(browserFileEvidence.lumatonePath, "manualBrowserFileFlows.lumatonePath");
+  requireEqual(browserFileEvidence.lumatoneLoaded, true, "manualBrowserFileFlows.lumatoneLoaded");
 
   requireObject(report.states.afterShortcutParity, "states.afterShortcutParity");
   requirePositiveNumber(
     report.states.afterShortcutParity.frameCount,
     "states.afterShortcutParity.frameCount"
   );
-  requirePassedCheck("manualShortcutParity");
+  const shortcutEvidence = requirePassedCheckEvidence("manualShortcutParity");
+  requireTruthy(shortcutEvidence.lastAction, "manualShortcutParity.lastAction");
+  requirePositiveNumber(shortcutEvidence.noteCount, "manualShortcutParity.noteCount");
+  requirePositiveNumber(shortcutEvidence.uiScale, "manualShortcutParity.uiScale");
 
   requireObject(report.states.afterPianoRollParity, "states.afterPianoRollParity");
   requirePositiveNumber(
     report.states.afterPianoRollParity.frameCount,
     "states.afterPianoRollParity.frameCount"
   );
-  requirePassedCheck("manualPianoRollParity");
+  const pianoEvidence = requirePassedCheckEvidence("manualPianoRollParity");
+  requirePositiveNumber(pianoEvidence.noteCount, "manualPianoRollParity.noteCount");
+  requirePositiveNumber(pianoEvidence.pianoViewBeats, "manualPianoRollParity.pianoViewBeats");
+  requirePositiveNumber(pianoEvidence.pianoGridWidth, "manualPianoRollParity.pianoGridWidth");
+  requirePositiveNumber(pianoEvidence.pianoGridHeight, "manualPianoRollParity.pianoGridHeight");
+  requirePositiveNumber(pianoEvidence.pianoRollHeight, "manualPianoRollParity.pianoRollHeight");
+  requirePositiveNumber(pianoEvidence.rightPanelWidth, "manualPianoRollParity.rightPanelWidth");
 }
 
 export async function resolveReportPath(targetPath) {

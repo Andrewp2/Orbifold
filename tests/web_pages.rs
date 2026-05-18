@@ -435,6 +435,9 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "browserFileFlows",
         "shortcutParity",
         "pianoRollParity",
+        "manualBrowserFileFlows.assetCount",
+        "manualShortcutParity.lastAction",
+        "manualPianoRollParity.pianoGridWidth",
         "host.platform",
         "host.arch",
         "host.release",
@@ -484,6 +487,9 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "manualRealMidiRecording evidence should show a new recorded note",
         "browserFileFlows expected true",
         "states.afterPianoRollParity.frameCount should be a positive number",
+        "manualBrowserFileFlows.assetCount should be a positive number",
+        "manualShortcutParity.lastAction should be present",
+        "manualPianoRollParity.pianoGridWidth should be a positive number",
         "manual web device report validator behavior ok",
     ] {
         assert!(
