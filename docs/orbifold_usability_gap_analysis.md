@@ -257,6 +257,10 @@ Progress since this gap list was first written:
 - Browser audio output listing now checks whether Web Audio is available before
   advertising `Browser audio`, so browsers without `AudioContext` enter the same
   setup-required no-audio state as native hosts with no output device.
+- Browser audio refresh now uses the browser's asynchronous device API when
+  `AudioContext.setSinkId` is available, keeps a fallback `Browser audio` output
+  when sink selection is unavailable, and reports asynchronous sink-selection
+  failures through the visible Orbifold error status.
 - Browser text edit actions now share the native handler for BPM, root note,
   base frequency, scale search, and asset search, so the web runtime no longer
   silently ignores Operad `TextEdit` actions for those controls.

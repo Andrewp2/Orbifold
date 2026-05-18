@@ -246,12 +246,14 @@ pub(crate) fn build_audio_stream(
 ))]
 pub(crate) fn build_audio_stream(
     synth: &SynthHandle,
-    _requested_output_name: Option<&str>,
+    requested_output_name: Option<&str>,
 ) -> Result<(AudioStream, String, Sender<AudioCommand>, AudioStreamInfo), String> {
     use wasm_bindgen::JsCast;
 
-    let context_info =
-        js_sys::Array::from(&create_orbifold_audio_context_js().map_err(js_error_message)?);
+    let context_info = js_sys::Array::from(
+        &create_orbifold_audio_context_js(requested_output_name.unwrap_or_default())
+            .map_err(js_error_message)?,
+    );
     let context = context_info.get(0);
     if context.is_null() || context.is_undefined() {
         return Err("Web Audio context was not created".to_string());
@@ -271,6 +273,11 @@ pub(crate) fn build_audio_stream(
         .as_f64()
         .map(|value| value.round().max(1.0) as u32)
         .unwrap_or(WEB_AUDIO_BUFFER_FRAMES);
+    let connected_name = context_info
+        .get(4)
+        .as_string()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Browser audio".to_string());
 
     let (engine, receiver, sender) = synth.make_engine(sample_rate_hz as f32);
     let engine = Rc::new(RefCell::new(engine));
@@ -315,7 +322,7 @@ pub(crate) fn build_audio_stream(
 
     Ok((
         AudioStream::new(context, node, callback),
-        "Browser audio".to_string(),
+        connected_name,
         sender,
         info,
     ))
@@ -429,7 +436,43 @@ export function browser_audio_available_js() {
   return !!(window.AudioContext || window.webkitAudioContext);
 }
 
-export function create_orbifold_audio_context_js() {
+function orbifoldAudioOutputForName(requestedName) {
+  const requested = String(requestedName || "").trim();
+  const outputs = Array.isArray(window.__orbifoldAudioOutputs) ? window.__orbifoldAudioOutputs : [];
+  const selected = requested
+    ? outputs.find((output) => output && output.name === requested)
+    : null;
+  return selected || outputs.find((output) => output && output.isDefault) || null;
+}
+
+function requestAudioSink(context, requestedName) {
+  const selected = orbifoldAudioOutputForName(requestedName);
+  const selectedName = selected && selected.name ? String(selected.name) : "Browser audio";
+  const deviceId = selected && selected.deviceId ? String(selected.deviceId) : "";
+  document.body.dataset.orbifoldAudioSinkRequested = selectedName;
+  if (!deviceId || typeof context.setSinkId !== "function") {
+    document.body.dataset.orbifoldAudioSinkSelectionUnsupported = "1";
+    return "Browser audio";
+  }
+  document.body.dataset.orbifoldAudioSinkSelectionUnsupported = "0";
+  const result = context.setSinkId(deviceId);
+  if (result && result.then) {
+    result.then(() => {
+      document.body.dataset.orbifoldAudioSinkResolved = selectedName;
+      document.body.dataset.orbifoldAudioSinkDeviceId = deviceId;
+    });
+  }
+  if (result && result.catch) {
+    result.catch((error) => {
+      const message = `Web Audio sink selection failed: ${jsErrorMessage(error)}`;
+      console.error(message, error);
+      pushOrbifoldAudioError(message);
+    });
+  }
+  return selectedName;
+}
+
+export function create_orbifold_audio_context_js(requestedName) {
   const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextCtor) {
     throw "Web Audio is not available in this browser";
@@ -439,7 +482,8 @@ export function create_orbifold_audio_context_js() {
   document.body.dataset.orbifoldAudioContextState = String(context.state || "");
   const bufferFrames = 1024;
   const channels = Math.max(1, Math.min(2, context.destination.maxChannelCount || 2));
-  return [context, context.sampleRate || 48000, channels, bufferFrames];
+  const connectedName = requestAudioSink(context, requestedName);
+  return [context, context.sampleRate || 48000, channels, bufferFrames, connectedName];
 }
 
 export function attach_orbifold_audio_processor_js(context, callback, bufferFrames) {
@@ -518,7 +562,9 @@ extern "C" {
     fn browser_audio_available_js() -> bool;
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = create_orbifold_audio_context_js)]
-    fn create_orbifold_audio_context_js() -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
+    fn create_orbifold_audio_context_js(
+        requested_name: &str,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>;
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = attach_orbifold_audio_processor_js)]
     fn attach_orbifold_audio_processor_js(

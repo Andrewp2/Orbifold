@@ -74,9 +74,11 @@ The headless smoke currently covers:
 - browser UI-scale action persistence and runtime reload,
 - deterministic Web MIDI refresh, connect, note-on, note-off, and recording
   through a browser MIDI stub,
-- Web Audio output discovery, audio-context creation, processor attachment,
-  resume request, Orbifold audio connected state, callback activity, rendered
-  frame count, and nonzero A4 test-tone samples.
+- Web Audio output discovery through the browser device APIs when sink
+  selection is available, fallback `Browser audio` discovery when it is not,
+  audio-context creation, processor attachment, optional sink-selection
+  request/error surfacing, resume request, Orbifold audio connected state,
+  callback activity, rendered frame count, and nonzero A4 test-tone samples.
 
 The `tests/web_pages.rs` integration tests assert that the web shell, build
 script, Pages workflow, smoke script, runtime bridges, persistence paths, and

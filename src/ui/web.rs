@@ -10,6 +10,7 @@ use operad::{
 use wasm_bindgen::JsValue;
 
 use crate::app::{AppState, AudioAssetKind, WorkspaceResizeTarget};
+use crate::audio::AudioOutputDevice;
 use crate::project::ProjectFile;
 use crate::settings::AppSettings;
 use crate::time::AppInstant;
@@ -125,6 +126,7 @@ struct WebOrbifoldApp {
     pending_text_files: Rc<RefCell<Vec<PendingBrowserTextFile>>>,
     pending_binary_files: Rc<RefCell<Vec<PendingBrowserBinaryFile>>>,
     pending_asset_saves: Rc<RefCell<Vec<Result<(), String>>>>,
+    pending_audio: Rc<RefCell<Vec<BrowserAudioServiceResult>>>,
     pending_midi: Rc<RefCell<Vec<BrowserMidiServiceResult>>>,
     viewport: UiSize,
     note_drag: Option<WebNoteDrag>,
@@ -259,6 +261,10 @@ enum BrowserMidiServiceResult {
     Connected(Result<String, String>),
 }
 
+enum BrowserAudioServiceResult {
+    Outputs(Result<Vec<AudioOutputDevice>, String>),
+}
+
 impl BrowserWheelEvent {
     fn pixel_delta(self, page_size: UiSize) -> UiPoint {
         match self.delta_mode {
@@ -300,6 +306,7 @@ impl WebOrbifoldApp {
             pending_text_files: Rc::new(RefCell::new(Vec::new())),
             pending_binary_files: Rc::new(RefCell::new(Vec::new())),
             pending_asset_saves: Rc::new(RefCell::new(Vec::new())),
+            pending_audio: Rc::new(RefCell::new(Vec::new())),
             pending_midi: Rc::new(RefCell::new(Vec::new())),
             viewport: UiSize::new(MIN_WIDTH, MIN_HEIGHT),
             note_drag: None,
@@ -1412,6 +1419,22 @@ impl WebOrbifoldApp {
         for err in crate::audio::drain_browser_audio_errors() {
             self.app.set_error_status(err);
         }
+        let pending_audio = self
+            .pending_audio
+            .borrow_mut()
+            .drain(..)
+            .collect::<Vec<_>>();
+        for result in pending_audio {
+            match result {
+                BrowserAudioServiceResult::Outputs(Ok(outputs)) => {
+                    self.app.apply_refreshed_audio_outputs(outputs, true);
+                    should_persist_settings = true;
+                }
+                BrowserAudioServiceResult::Outputs(Err(err)) => self
+                    .app
+                    .set_error_status(format!("Audio refresh error: {err}")),
+            }
+        }
         let pending_midi = self.pending_midi.borrow_mut().drain(..).collect::<Vec<_>>();
         for result in pending_midi {
             match result {
@@ -1498,6 +1521,7 @@ impl WebOrbifoldApp {
                 "Opening browser key map...",
             ),
             "asset.import" => self.begin_browser_asset_import(),
+            "audio.refresh" => self.begin_browser_audio_refresh(),
             "midi.refresh" => self.begin_browser_midi_refresh(),
             "midi.connect" => self.begin_browser_midi_connect(),
             _ => dispatch_action(&mut self.app, action, None, None),
@@ -1547,6 +1571,17 @@ impl WebOrbifoldApp {
         wasm_bindgen_futures::spawn_local(async move {
             let result = browser_save_asset_storage_record(&path, kind, &file_name, &bytes).await;
             pending.borrow_mut().push(result);
+        });
+    }
+
+    fn begin_browser_audio_refresh(&mut self) {
+        self.app.last_status = "Refreshing browser audio outputs...".to_string();
+        let pending = self.pending_audio.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = browser_request_audio_outputs().await;
+            pending
+                .borrow_mut()
+                .push(BrowserAudioServiceResult::Outputs(result));
         });
     }
 
@@ -1954,6 +1989,33 @@ fn browser_asset_accept(kind: AudioAssetKind) -> String {
         .map(|extension| format!(".{extension}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+async fn browser_request_audio_outputs() -> Result<Vec<AudioOutputDevice>, String> {
+    let value = request_audio_outputs_js().await.map_err(js_error_message)?;
+    let records = Array::from(&value);
+    let mut outputs = Vec::new();
+    for index in 0..records.length() {
+        let record = Array::from(&records.get(index));
+        let Some(name) = record
+            .get(0)
+            .as_string()
+            .filter(|name| !name.trim().is_empty())
+        else {
+            continue;
+        };
+        let is_default = record.get(1).as_bool().unwrap_or_else(|| {
+            record
+                .get(1)
+                .as_f64()
+                .is_some_and(|value| value.abs() > f64::EPSILON)
+        });
+        outputs.push(AudioOutputDevice { name, is_default });
+    }
+    if outputs.is_empty() {
+        return Err("Browser audio refresh returned no outputs".to_string());
+    }
+    Ok(outputs)
 }
 
 async fn browser_request_midi_inputs() -> Result<Vec<String>, String> {
@@ -3000,6 +3062,68 @@ export function download_text_file_js(fileName, text) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+let orbifoldAudioOutputs = [];
+
+function audioContextConstructor() {
+  return window.AudioContext || window.webkitAudioContext || null;
+}
+
+function browserAudioSinkSelectionSupported() {
+  const AudioContextCtor = audioContextConstructor();
+  return !!(AudioContextCtor && AudioContextCtor.prototype && AudioContextCtor.prototype.setSinkId);
+}
+
+function fallbackBrowserAudioOutput() {
+  document.body.dataset.orbifoldAudioOutputSelectionSupported = browserAudioSinkSelectionSupported() ? "1" : "0";
+  orbifoldAudioOutputs = [{ name: "Browser audio", deviceId: "", isDefault: true }];
+  window.__orbifoldAudioOutputs = orbifoldAudioOutputs;
+  return orbifoldAudioOutputs;
+}
+
+function audioOutputLabel(device, index) {
+  const label = String(device.label || "").trim();
+  if (label) {
+    return label;
+  }
+  if (device.deviceId === "default") {
+    return "Default browser audio output";
+  }
+  return `Browser audio output ${index + 1}`;
+}
+
+export async function request_audio_outputs_js() {
+  if (!audioContextConstructor()) {
+    throw "Web Audio is not available in this browser";
+  }
+  if (!browserAudioSinkSelectionSupported()) {
+    return fallbackBrowserAudioOutput().map((output) => [output.name, output.isDefault]);
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    return fallbackBrowserAudioOutput().map((output) => [output.name, output.isDefault]);
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const audioOutputs = devices
+    .filter((device) => device.kind === "audiooutput")
+    .map((device, index) => ({
+      name: audioOutputLabel(device, index),
+      deviceId: String(device.deviceId || ""),
+      isDefault: device.deviceId === "default" || index === 0,
+    }));
+  document.body.dataset.orbifoldAudioOutputSelectionSupported = "1";
+  orbifoldAudioOutputs = audioOutputs.length > 0 ? audioOutputs : fallbackBrowserAudioOutput();
+  window.__orbifoldAudioOutputs = orbifoldAudioOutputs;
+  document.body.dataset.orbifoldBrowserAudioOutputNames = orbifoldAudioOutputs.map((output) => output.name).join("\n");
+  return orbifoldAudioOutputs.map((output) => [output.name, output.isDefault]);
+}
+
+export function select_browser_audio_output_js(requestedName) {
+  const requested = String(requestedName || "").trim();
+  const output = requested
+    ? orbifoldAudioOutputs.find((candidate) => candidate.name === requested)
+    : null;
+  return output || orbifoldAudioOutputs.find((candidate) => candidate.isDefault) || null;
+}
+
 let orbifoldMidiAccess = null;
 let orbifoldMidiInput = null;
 let orbifoldMidiMessages = [];
@@ -3224,6 +3348,9 @@ extern "C" {
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = download_text_file_js)]
     fn download_text_file_js(file_name: &str, text: &str) -> Result<(), JsValue>;
+
+    #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = request_audio_outputs_js)]
+    async fn request_audio_outputs_js() -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = request_midi_inputs_js)]
     async fn request_midi_inputs_js() -> Result<JsValue, JsValue>;

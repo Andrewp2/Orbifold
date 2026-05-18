@@ -962,7 +962,7 @@ async function verifyBrowserAudioFlow(send, sessionId) {
     sessionId,
     (state) =>
       state.audioOutputCount >= 1 &&
-      state.lastStatus.includes("Refreshed audio outputs: 1 audio output"),
+      /^Refreshed audio outputs: \d+ audio outputs?/.test(state.lastStatus),
     "browser audio refresh did not expose the Web Audio output"
   );
 
@@ -972,7 +972,7 @@ async function verifyBrowserAudioFlow(send, sessionId) {
     sessionId,
     (state) =>
       state.audioStreamConnected &&
-      state.connectedAudioOutput === "Browser audio" &&
+      state.connectedAudioOutput.length > 0 &&
       state.audioContextCreated &&
       state.audioProcessorAttached &&
       state.audioResumeRequested,
@@ -1602,6 +1602,8 @@ async function evaluateProjectState(send, sessionId) {
         lastMidiNote: Number(document.body.dataset.orbifoldLastMidiNote ?? -1),
         audioOutputCount: Number(document.body.dataset.orbifoldAudioOutputCount ?? 0),
         connectedAudioOutput: document.body.dataset.orbifoldConnectedAudioOutput ?? "",
+        audioOutputSelectionSupported: document.body.dataset.orbifoldAudioOutputSelectionSupported === "1",
+        browserAudioOutputNames: document.body.dataset.orbifoldBrowserAudioOutputNames ?? "",
         audioStreamConnected: document.body.dataset.orbifoldAudioStreamConnected === "1",
         audioContextCreated: document.body.dataset.orbifoldAudioContextCreated === "1",
         audioProcessorAttached: document.body.dataset.orbifoldAudioProcessorAttached === "1",
