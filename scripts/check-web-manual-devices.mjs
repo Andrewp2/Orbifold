@@ -6,102 +6,98 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { validateManualDeviceReport } from "./check-web-manual-report.mjs";
 import { fetchWebArtifactFingerprint } from "./web-artifact-fingerprint.mjs";
 
-const options = parseArgs(process.argv.slice(2));
-if (!options.url) {
-  console.error(
-    "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open]"
-  );
-  process.exit(2);
-}
-
-if (!process.stdin.isTTY) {
-  console.error("This manual device check requires an interactive terminal.");
-  process.exit(2);
-}
-
-if (typeof WebSocket !== "function") {
-  console.error("Node.js with a global WebSocket implementation is required.");
-  process.exit(2);
-}
-
-const chromePath = findChrome();
-if (!chromePath) {
-  console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
-  process.exit(2);
-}
-
-const timeoutMs = numberFromEnv("ORBIFOLD_WEB_MANUAL_TIMEOUT_MS", 60_000);
-const devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-manual-"));
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-const report = {
-  schema: "orbifold.web_manual_device_parity.v1",
-  generatedAt: new Date().toISOString(),
-  targetUrl: options.url,
-  host: {
-    platform: process.platform,
-    arch: process.arch,
-    release: os.release(),
-  },
-  chrome: {
-    path: chromePath,
-  },
-  checks: [],
-  clicks: [],
-  states: {},
-  userConfirmations: {},
-  browserEvents: [],
-};
-
-const chrome = spawn(
-  chromePath,
-  [
-    "--remote-debugging-port=0",
-    "--enable-unsafe-webgpu",
-    "--ignore-gpu-blocklist",
-    "--disable-dev-shm-usage",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--window-size=1600,1000",
-    `--user-data-dir=${profile}`,
-    "about:blank",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] }
-);
-
 let stdout = "";
 let stderr = "";
-chrome.stdout.on("data", (chunk) => {
-  stdout += chunk;
-});
-chrome.stderr.on("data", (chunk) => {
-  stderr += chunk;
-});
-
+let options = null;
+let timeoutMs = numberFromEnv("ORBIFOLD_WEB_MANUAL_TIMEOUT_MS", 60_000);
+let devtoolsTimeoutMs = numberFromEnv("ORBIFOLD_CHROME_DEVTOOLS_TIMEOUT_MS", 20_000);
+let profile = "";
+let rl = null;
+let report = null;
+let chrome = null;
 let pageSession = null;
 let send = null;
 
-try {
-  const browserWsUrl = await waitForDevtoolsEndpoint();
-  ({ send, pageSession } = await connectToPage(browserWsUrl));
-  await runManualDeviceCheck();
-} catch (error) {
-  report.error = String(error?.stack || error?.message || error);
-  setCheck("manualDeviceVerifierCompleted", false, { error: report.error });
-  process.exitCode = 1;
-} finally {
-  const reportPath = writeReport(report, options.outDir);
-  console.log(`\nManual device parity report: ${reportPath}`);
-  rl.close();
-  if (options.keepOpen) {
-    console.log("Chrome left open because --keep-open was supplied.");
-  } else {
-    await terminateChrome(chrome);
-    await removeProfile(profile);
+if (isCliEntrypoint()) {
+  await runManualDeviceCli(process.argv.slice(2));
+}
+
+export async function runManualDeviceCli(args) {
+  options = parseManualDeviceArgs(args);
+  if (!options.url) {
+    console.error(
+      "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open]"
+    );
+    process.exit(2);
+  }
+
+  if (!process.stdin.isTTY) {
+    console.error("This manual device check requires an interactive terminal.");
+    process.exit(2);
+  }
+
+  if (typeof WebSocket !== "function") {
+    console.error("Node.js with a global WebSocket implementation is required.");
+    process.exit(2);
+  }
+
+  const chromePath = findChrome();
+  if (!chromePath) {
+    console.error("Could not find Chrome. Set CHROME_BIN or install google-chrome/chromium.");
+    process.exit(2);
+  }
+
+  profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-manual-"));
+  rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  report = createManualDeviceReport(options.url, chromePath);
+  stdout = "";
+  stderr = "";
+
+  chrome = spawn(
+    chromePath,
+    [
+      "--remote-debugging-port=0",
+      "--enable-unsafe-webgpu",
+      "--ignore-gpu-blocklist",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--window-size=1600,1000",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  chrome.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  chrome.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const browserWsUrl = await waitForDevtoolsEndpoint();
+    ({ send, pageSession } = await connectToPage(browserWsUrl));
+    await runManualDeviceCheck();
+  } catch (error) {
+    report.error = String(error?.stack || error?.message || error);
+    setCheck("manualDeviceVerifierCompleted", false, { error: report.error });
+    process.exitCode = 1;
+  } finally {
+    const reportPath = writeReport(report, options.outDir);
+    console.log(`\nManual device parity report: ${reportPath}`);
+    rl.close();
+    if (options.keepOpen) {
+      console.log("Chrome left open because --keep-open was supplied.");
+    } else {
+      await terminateChrome(chrome);
+      await removeProfile(profile);
+    }
   }
 }
 
@@ -269,7 +265,7 @@ async function runManualDeviceCheck() {
   console.log("\nManual web device parity checks passed and report evidence validated.");
 }
 
-function parseArgs(args) {
+export function parseManualDeviceArgs(args) {
   const parsed = { url: null, outDir: "reports", keepOpen: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -287,6 +283,31 @@ function parseArgs(args) {
     }
   }
   return parsed;
+}
+
+export function createManualDeviceReport(
+  targetUrl,
+  chromePath,
+  generatedAt = new Date().toISOString()
+) {
+  return {
+    schema: "orbifold.web_manual_device_parity.v1",
+    generatedAt,
+    targetUrl,
+    host: {
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+    },
+    chrome: {
+      path: chromePath,
+    },
+    checks: [],
+    clicks: [],
+    states: {},
+    userConfirmations: {},
+    browserEvents: [],
+  };
 }
 
 function numberFromEnv(name, fallback) {
@@ -591,7 +612,7 @@ function pickRuntimeEvidence(state) {
   };
 }
 
-function persistedNoteCount(projectText) {
+export function persistedNoteCount(projectText) {
   return (String(projectText || "").match(/\nnote\t/g) ?? []).length;
 }
 
@@ -620,4 +641,8 @@ async function removeProfile(profilePath) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isCliEntrypoint() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

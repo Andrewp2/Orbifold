@@ -45,6 +45,7 @@ jobs:
 
       - name: Test web parity evidence scripts
         run: |
+          node scripts/test-web-manual-devices.mjs
           node scripts/test-web-manual-report-validator.mjs
           node scripts/test-web-parity-gate.mjs
 

@@ -98,6 +98,7 @@ fn ci_workflow_opts_github_javascript_actions_into_node24() {
         "node-version: 22",
         "cargo fmt --check",
         "cargo test",
+        "node scripts/test-web-manual-devices.mjs",
         "node scripts/test-web-manual-report-validator.mjs",
         "node scripts/test-web-parity-gate.mjs",
         "cargo clippy --all-targets -- -D warnings",
@@ -255,6 +256,7 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
 #[test]
 fn web_manual_device_script_records_real_browser_device_evidence() {
     let script = include_str!("../scripts/check-web-manual-devices.mjs");
+    let behavior_test = include_str!("../scripts/test-web-manual-devices.mjs");
     let readme = include_str!("../README.md");
     let audit = include_str!("../docs/web_parity_audit.md");
     let checklist = include_str!("../docs/manual_qa_checklist.md");
@@ -267,6 +269,11 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "fetchWebArtifactFingerprint",
         "report.artifact",
         "report evidence validated",
+        "isCliEntrypoint",
+        "export async function runManualDeviceCli",
+        "export function parseManualDeviceArgs",
+        "export function createManualDeviceReport",
+        "export function persistedNoteCount",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         "Input.dispatchMouseEvent",
@@ -293,6 +300,19 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         assert!(
             script.contains(required),
             "scripts/check-web-manual-devices.mjs should capture manual device evidence: {required}"
+        );
+    }
+
+    for required in [
+        "parseManualDeviceArgs",
+        "createManualDeviceReport",
+        "persistedNoteCount",
+        "Unknown argument: --bogus",
+        "manual web device runner behavior ok",
+    ] {
+        assert!(
+            behavior_test.contains(required),
+            "scripts/test-web-manual-devices.mjs should behavior-test {required}"
         );
     }
 
