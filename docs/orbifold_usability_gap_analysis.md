@@ -265,6 +265,9 @@ Progress since this gap list was first written:
   `AudioContext.setSinkId` is available, keeps a fallback `Browser audio` output
   when sink selection is unavailable, and reports asynchronous sink-selection
   failures through the visible Orbifold error status.
+- The web smoke test now stubs named browser audio outputs and `setSinkId`, so
+  CI exercises the named-output routing path instead of only proving the generic
+  fallback `Browser audio` path.
 - Browser text edit actions now share the native handler for BPM, root note,
   base frequency, scale search, and asset search, so the web runtime no longer
   silently ignores Operad `TextEdit` actions for those controls.

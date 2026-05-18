@@ -183,7 +183,7 @@ async function runSmoke(browserWsUrl) {
       behavior: "allow",
       downloadPath: artifactsDir,
     });
-    await installMockMidiAccess(send, sessionId);
+    await installMockBrowserDevices(send, sessionId);
     await send(
       "Emulation.setDeviceMetricsOverride",
       {
@@ -219,11 +219,49 @@ async function runSmoke(browserWsUrl) {
   }
 }
 
-async function installMockMidiAccess(send, sessionId) {
+async function installMockBrowserDevices(send, sessionId) {
   await send(
     "Page.addScriptToEvaluateOnNewDocument",
     {
       source: `(() => {
+        const audioOutputs = [
+          {
+            kind: "audiooutput",
+            deviceId: "default",
+            label: "Default Smoke Output",
+          },
+          {
+            kind: "audiooutput",
+            deviceId: "orbifold-smoke-speakers",
+            label: "Orbifold Smoke Speakers",
+          },
+        ];
+        const mediaDevices = navigator.mediaDevices || {};
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {
+            ...mediaDevices,
+            enumerateDevices: async () => audioOutputs,
+          },
+        });
+        const installAudioSinkStub = () => {
+          const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextCtor || !AudioContextCtor.prototype) {
+            return;
+          }
+          Object.defineProperty(AudioContextCtor.prototype, "setSinkId", {
+            configurable: true,
+            value: async function setSinkId(deviceId) {
+              document.body.dataset.orbifoldSmokeSinkId = String(deviceId || "");
+              this.__orbifoldSmokeSinkId = String(deviceId || "");
+            },
+          });
+        };
+        installAudioSinkStub();
+        Object.defineProperty(window, "__orbifoldSmokeAudioOutputs", {
+          configurable: true,
+          value: audioOutputs,
+        });
         const input = {
           id: "orbifold-smoke-midi",
           name: "Orbifold Smoke MIDI",
@@ -968,9 +1006,12 @@ async function verifyBrowserAudioFlow(send, sessionId) {
     send,
     sessionId,
     (state) =>
-      state.audioOutputCount >= 1 &&
+      state.audioOutputCount >= 2 &&
+      state.audioOutputSelectionSupported &&
+      state.browserAudioOutputNames.includes("Default Smoke Output") &&
+      state.browserAudioOutputNames.includes("Orbifold Smoke Speakers") &&
       /^Refreshed audio outputs: \d+ audio outputs?/.test(state.lastStatus),
-    "browser audio refresh did not expose the Web Audio output"
+    "browser audio refresh did not expose mocked Web Audio outputs"
   );
 
   await dispatchBrowserAction(send, sessionId, "audio.connect");
@@ -979,11 +1020,15 @@ async function verifyBrowserAudioFlow(send, sessionId) {
     sessionId,
     (state) =>
       state.audioStreamConnected &&
-      state.connectedAudioOutput.length > 0 &&
+      state.connectedAudioOutput === "Default Smoke Output" &&
+      state.audioSinkRequested === "Default Smoke Output" &&
+      state.audioSinkResolved === "Default Smoke Output" &&
+      state.audioSinkDeviceId === "default" &&
+      state.smokeSinkId === "default" &&
       state.audioContextCreated &&
       state.audioProcessorAttached &&
       state.audioResumeRequested,
-    "browser audio connect did not create and start the Web Audio stream"
+    "browser audio connect did not create and route the named Web Audio stream"
   );
 
   await dispatchBrowserAction(send, sessionId, "audio.test_a4");
@@ -1614,6 +1659,10 @@ async function evaluateProjectState(send, sessionId) {
         connectedAudioOutput: document.body.dataset.orbifoldConnectedAudioOutput ?? "",
         audioOutputSelectionSupported: document.body.dataset.orbifoldAudioOutputSelectionSupported === "1",
         browserAudioOutputNames: document.body.dataset.orbifoldBrowserAudioOutputNames ?? "",
+        audioSinkRequested: document.body.dataset.orbifoldAudioSinkRequested ?? "",
+        audioSinkResolved: document.body.dataset.orbifoldAudioSinkResolved ?? "",
+        audioSinkDeviceId: document.body.dataset.orbifoldAudioSinkDeviceId ?? "",
+        smokeSinkId: document.body.dataset.orbifoldSmokeSinkId ?? "",
         audioStreamConnected: document.body.dataset.orbifoldAudioStreamConnected === "1",
         audioContextCreated: document.body.dataset.orbifoldAudioContextCreated === "1",
         audioProcessorAttached: document.body.dataset.orbifoldAudioProcessorAttached === "1",
