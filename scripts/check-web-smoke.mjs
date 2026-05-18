@@ -215,6 +215,7 @@ async function runSmoke(browserWsUrl) {
     await verifyKeyboardShortcut(send, sessionId);
     await verifyBrowserTextEditActions(send, sessionId);
     await verifyPianoGridDoubleClick(send, sessionId);
+    await verifyBrowserCursorFeedback(send, sessionId);
     await verifyPianoNoteDrag(send, sessionId);
     await verifyPianoNoteResize(send, sessionId);
     await verifyPianoVelocityDrag(send, sessionId);
@@ -871,6 +872,96 @@ async function verifyPianoGridDoubleClick(send, sessionId) {
   );
 }
 
+async function verifyBrowserCursorFeedback(send, sessionId) {
+  const geometry = await waitForPianoGeometry(send, sessionId, (geometry) => {
+    return (
+      geometry.addX > 0 &&
+      geometry.addY > 0 &&
+      geometry.dragStartX > 0 &&
+      geometry.dragStartY > 0 &&
+      geometry.resizeStartX > 0 &&
+      geometry.resizeStartY > 0 &&
+      geometry.velocityStartX > 0 &&
+      geometry.velocityStartY > 0
+    );
+  });
+  const layout = await waitForLayoutGeometry(send, sessionId, (layout) => {
+    return (
+      layout.rightResizeX > 0 &&
+      layout.bottomResizeX > 0 &&
+      layout.pianoSeekStartX > 0 &&
+      layout.pianoLoopEndStartX > 0
+    );
+  });
+  const state = await evaluateProjectState(send, sessionId);
+  const blankGrid = findBlankPianoGridPoint(geometry, state);
+
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    blankGrid.x,
+    blankGrid.y,
+    "crosshair",
+    "browser piano grid hover did not use a crosshair cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    geometry.dragStartX,
+    geometry.dragStartY,
+    "grab",
+    "browser piano note hover did not use a grab cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    geometry.resizeStartX,
+    geometry.resizeStartY,
+    "ew-resize",
+    "browser piano note resize hover did not use a horizontal resize cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    geometry.velocityStartX,
+    geometry.velocityStartY,
+    "ns-resize",
+    "browser piano velocity hover did not use a vertical resize cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    layout.pianoLoopEndStartX,
+    layout.pianoLoopEndStartY,
+    "ew-resize",
+    "browser loop-end hover did not use a horizontal resize cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    layout.pianoSeekStartX,
+    layout.pianoSeekStartY,
+    "pointer",
+    "browser timeline ruler hover did not use a pointer cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    layout.rightResizeX,
+    layout.rightResizeY,
+    "ew-resize",
+    "browser workspace side splitter hover did not use a horizontal resize cursor"
+  );
+  await expectCanvasCursor(
+    send,
+    sessionId,
+    layout.bottomResizeX,
+    layout.bottomResizeY,
+    "ns-resize",
+    "browser workspace bottom splitter hover did not use a vertical resize cursor"
+  );
+}
+
 async function doubleClickCanvasPoint(send, sessionId, x, y) {
   for (const clickCount of [1, 2]) {
     await send(
@@ -897,6 +988,49 @@ async function doubleClickCanvasPoint(send, sessionId, x, y) {
     );
     await delay(120);
   }
+}
+
+async function expectCanvasCursor(send, sessionId, x, y, expected, failureMessage) {
+  await send(
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseMoved",
+      x,
+      y,
+    },
+    sessionId
+  );
+  const deadline = Date.now() + 1_500;
+  let observed = "";
+  while (Date.now() <= deadline) {
+    observed = await evaluateCanvasCursor(send, sessionId);
+    if (observed === expected) {
+      return;
+    }
+    await delay(100);
+  }
+  const state = await evaluateProjectState(send, sessionId);
+  throw new Error(
+    `${failureMessage}: expected ${expected}, got ${observed} at (${x.toFixed(1)}, ${y.toFixed(
+      1
+    )}); last pointer ${state.lastPointerAction}/${state.lastPointerPhase} at (${state.lastPointerX}, ${state.lastPointerY})`
+  );
+}
+
+async function evaluateCanvasCursor(send, sessionId) {
+  const result = await send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => {
+        const canvas = document.getElementById("orbifold-canvas");
+        if (!canvas) return "";
+        return canvas.style.cursor || getComputedStyle(canvas).cursor || "";
+      })()`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  return String(result.result.value ?? "");
 }
 
 async function evaluatePianoGeometry(send, sessionId) {
@@ -2531,6 +2665,8 @@ async function evaluateProjectState(send, sessionId) {
         lastAction: document.body.dataset.orbifoldLastAction ?? "",
         lastPointerAction: document.body.dataset.orbifoldLastPointerAction ?? "",
         lastPointerPhase: document.body.dataset.orbifoldLastPointerPhase ?? "",
+        lastPointerX: Number(document.body.dataset.orbifoldLastPointerX ?? 0),
+        lastPointerY: Number(document.body.dataset.orbifoldLastPointerY ?? 0),
         noteCount: Number(document.body.dataset.orbifoldProjectNoteCount ?? 0),
         lastStatus: document.body.dataset.orbifoldLastStatus ?? "",
         frameCount: Number(document.body.dataset.orbifoldFrameCount ?? 0),
@@ -2611,6 +2747,98 @@ export function latestProjectNote(projectText) {
 
 export function projectNoteById(projectText, id) {
   return projectNotes(projectText).find((note) => note.id === id) ?? null;
+}
+
+export function findBlankPianoGridPoint(geometry, state) {
+  const rowHeight =
+    geometry.gridHeight /
+    Math.max(1, Math.floor(geometry.maxPitch) - Math.floor(geometry.minPitch) + 1);
+  const notes = projectNotes(state.project ?? "");
+  const candidateFractions = [0.91, 0.77, 0.63, 0.49, 0.35, 0.21, 0.08];
+
+  for (const xFraction of candidateFractions) {
+    for (let row = 0; row <= geometry.maxPitch - geometry.minPitch; row += 2) {
+      const point = {
+        x: geometry.gridX + geometry.gridWidth * xFraction,
+        y: geometry.gridY + rowHeight * (row + 0.5),
+      };
+      if (!pointHitsAnyPianoNote(point, notes, geometry, state.loopBeats)) {
+        return point;
+      }
+    }
+  }
+
+  throw new Error(
+    `could not find a blank piano grid point for cursor smoke; geometry=${JSON.stringify(
+      geometry
+    )} notes=${notes.length}`
+  );
+}
+
+function pointHitsAnyPianoNote(point, notes, geometry, loopBeats) {
+  return notes.some((note) =>
+    pianoNoteRects(note, geometry, loopBeats).some((rect) => rectContainsPoint(rect, point))
+  );
+}
+
+function pianoNoteRects(note, geometry, loopBeats) {
+  if (note.musicalNote < geometry.minPitch || note.musicalNote > geometry.maxPitch) {
+    return [];
+  }
+  const rowHeight =
+    geometry.gridHeight /
+    Math.max(1, Math.floor(geometry.maxPitch) - Math.floor(geometry.minPitch) + 1);
+  const y = geometry.gridY + (geometry.maxPitch - note.musicalNote) * rowHeight + 2;
+  const height = Math.max(4, rowHeight - 4);
+  return visibleNoteBeatSegments(note, geometry, loopBeats).map(([start, end]) => {
+    const x =
+      geometry.gridX +
+      (geometry.gridWidth * (start - geometry.viewStart)) / Math.max(1, geometry.viewBeats);
+    const width =
+      (geometry.gridWidth * Math.max(0, end - start)) / Math.max(1, geometry.viewBeats);
+    return { x, y, width: Math.max(24, width), height };
+  });
+}
+
+function visibleNoteBeatSegments(note, geometry, loopBeats) {
+  const loop = Math.max(1, loopBeats || geometry.viewBeats || 1);
+  const viewStart = clamp(geometry.viewStart, 0, loop);
+  const viewEnd = Math.min(viewStart + Math.max(1, geometry.viewBeats), loop);
+  if (viewEnd <= viewStart) {
+    return [];
+  }
+  if (note.durationBeat >= loop) {
+    return [[viewStart, viewEnd]];
+  }
+
+  const start = remEuclid(note.startBeat, loop);
+  const duration = clamp(note.durationBeat, 0, loop);
+  const end = start + duration;
+  const segments = end <= loop ? [[start, end]] : [[start, loop], [0, end - loop]];
+
+  return segments
+    .map(([segmentStart, segmentEnd]) => [
+      Math.max(segmentStart, viewStart),
+      Math.min(segmentEnd, viewEnd),
+    ])
+    .filter(([start, end]) => end > start);
+}
+
+function rectContainsPoint(rect, point) {
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function remEuclid(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
 }
 
 export function thirdNoteStartBeat(projectText) {

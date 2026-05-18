@@ -76,6 +76,8 @@ use screenshot::{
 #[cfg(feature = "native-app")]
 use screenshot::{ui_scale_for_pixel_size, write_startup_screenshot};
 use settings_panel::add_settings_panel_controls;
+#[cfg(feature = "web-app")]
+pub(in crate::ui) use surfaces::PianoNoteCursorRegion;
 pub(in crate::ui) use surfaces::SurfaceRects;
 use surfaces::piano_pitch_label_step;
 #[cfg(test)]

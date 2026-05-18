@@ -786,6 +786,17 @@ fn web_smoke_script_checks_headless_runtime_readiness() {
         "Scale search: edo",
         "Asset search: kick",
         "verifyPianoGridDoubleClick",
+        "verifyBrowserCursorFeedback",
+        "findBlankPianoGridPoint",
+        "pointHitsAnyPianoNote",
+        "expectCanvasCursor",
+        "evaluateCanvasCursor",
+        "browser piano grid hover did not use a crosshair cursor",
+        "browser piano note hover did not use a grab cursor",
+        "browser piano note resize hover did not use a horizontal resize cursor",
+        "browser piano velocity hover did not use a vertical resize cursor",
+        "browser workspace side splitter hover did not use a horizontal resize cursor",
+        "browser workspace bottom splitter hover did not use a vertical resize cursor",
         "verifyPianoNoteDrag",
         "verifyPianoNoteResize",
         "verifyPianoVelocityDrag",
@@ -1019,6 +1030,44 @@ fn web_smoke_script_checks_headless_runtime_readiness() {
         assert!(
             behavior_test.contains(required),
             "scripts/test-web-smoke-helpers.mjs should behavior-test {required}"
+        );
+    }
+}
+
+#[test]
+fn web_runtime_requests_browser_cursor_feedback() {
+    let source = include_str!("../src/ui/web.rs");
+
+    for required in [
+        "use operad::platform::{CursorRequest, CursorShape, PlatformRequest};",
+        ".with_platform_requests(|state: &mut WebOrbifoldApp, _metrics| {",
+        "state.cursor_platform_requests()",
+        "cursor_pos: Option<UiPoint>",
+        "cursor_shape: CursorShape",
+        "applied_cursor_shape: CursorShape",
+        "\"preview\" => Some(WidgetValueEditPhase::Preview)",
+        "fn cursor_platform_requests(&mut self) -> Vec<PlatformRequest>",
+        "PlatformRequest::Cursor(CursorRequest::SetShape(",
+        "fn update_cursor_for_point(",
+        "fn cursor_shape_for_action(",
+        "fn active_drag_cursor_shape(&self) -> Option<CursorShape>",
+        "layout.piano_note_cursor_region_at_point(&self.app, point)",
+        "layout.contains_piano_keyboard(point)",
+        "CursorShape::Crosshair",
+        "CursorShape::Grab",
+        "CursorShape::Grabbing",
+        "CursorShape::ResizeHorizontal",
+        "CursorShape::ResizeVertical",
+        "CursorShape::ResizeNorthEastSouthWest",
+        "CursorShape::Pointer",
+        "workspace_resize_cursor(target)",
+        "piano_viewport_drag_cursor(mode)",
+        "self.cursor_pos = Some(point);",
+        "self.cursor_pos = Some(event.position);",
+    ] {
+        assert!(
+            source.contains(required),
+            "src/ui/web.rs should request browser cursor feedback through Operad: {required}"
         );
     }
 }
@@ -1303,6 +1352,7 @@ fn web_runtime_marks_ready_after_orbifold_frame_preparation() {
         "export function publish_layout_automation_js",
         "export function install_browser_workspace_pointer_bridge_js",
         "export function drain_workspace_pointer_events_js",
+        "pushPointerEvent(\"preview\", event)",
         "install_browser_workspace_pointer_bridge_js(\"orbifold-canvas\")",
         "drain_workspace_pointer_events_js",
         "fn publish_browser_action_result",

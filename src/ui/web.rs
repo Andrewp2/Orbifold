@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use js_sys::{Array, Reflect};
+use operad::platform::{CursorRequest, CursorShape, PlatformRequest};
 use operad::{
     ApproxTextMeasurer, KeyCode, KeyModifiers, UiDocument, UiInputEvent, UiPoint, UiSize,
     WidgetAction, WidgetActionKind, WidgetDrag, WidgetDragPhase, WidgetTextEdit,
@@ -16,6 +17,7 @@ use crate::settings::AppSettings;
 use crate::time::AppInstant;
 
 use super::actions::{canonical_action_name, dispatch_action, handle_text_edit_action};
+use super::native::PianoNoteCursorRegion;
 
 const MIN_WIDTH: f32 = 1200.0;
 const MIN_HEIGHT: f32 = 760.0;
@@ -116,6 +118,9 @@ pub(crate) async fn run(app: AppState) -> Result<(), wasm_bindgen::JsValue> {
             .with_title(|state: &WebOrbifoldApp| state.app.window_title())
             .with_before_render(|state: &mut WebOrbifoldApp, metrics| {
                 state.prepare_browser_frame(metrics.viewport);
+            })
+            .with_platform_requests(|state: &mut WebOrbifoldApp, _metrics| {
+                state.cursor_platform_requests()
             }),
     )
     .await
@@ -136,6 +141,9 @@ struct WebOrbifoldApp {
     piano_viewport_drag: Option<WebPianoViewportDrag>,
     workspace_resize_drag: Option<WebWorkspaceResizeDrag>,
     last_piano_grid_click: Option<WebPianoGridClick>,
+    cursor_pos: Option<UiPoint>,
+    cursor_shape: CursorShape,
+    applied_cursor_shape: CursorShape,
     wheel_bridge_installed: bool,
     workspace_pointer_bridge_installed: bool,
     frame_count: u64,
@@ -316,6 +324,9 @@ impl WebOrbifoldApp {
             piano_viewport_drag: None,
             workspace_resize_drag: None,
             last_piano_grid_click: None,
+            cursor_pos: None,
+            cursor_shape: CursorShape::Default,
+            applied_cursor_shape: CursorShape::Default,
             wheel_bridge_installed: false,
             workspace_pointer_bridge_installed: false,
             frame_count: 0,
@@ -666,12 +677,15 @@ impl WebOrbifoldApp {
             point.x as f64,
             point.y as f64,
         );
+        self.cursor_pos = Some(point);
         let layout = self.surface_rects();
         if action == "active.drag_capture" && self.workspace_pointer_bridge_installed {
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if action == "active.drag_capture" {
             self.handle_active_pointer_drag(phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if self.has_active_pointer_drag()
@@ -681,33 +695,41 @@ impl WebOrbifoldApp {
             )
         {
             self.handle_active_pointer_drag(phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if let Some(target) = web_workspace_resize_target_from_action(action) {
             self.handle_workspace_resize_action(target, phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if let Some(mode) = web_loop_end_drag_mode_from_action(action) {
             self.handle_loop_end_drag_action(mode, phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if let Some(mode) = web_piano_viewport_drag_mode_from_action(action) {
             self.handle_piano_viewport_drag_action(mode, phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if let Some(mode) = web_timeline_drag_mode_from_action(action) {
             self.handle_timeline_drag_action(mode, phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if action == "piano.keyboard" {
             self.handle_piano_keyboard_action(phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         if action == "piano.grid" {
             self.handle_piano_grid_action(phase, point, layout);
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         }
         let Some((note_id, mode)) = web_note_drag_from_action(action) else {
+            self.update_cursor_for_point(action, phase, point, layout);
             return;
         };
         match phase {
@@ -738,6 +760,7 @@ impl WebOrbifoldApp {
             }
             WidgetValueEditPhase::Preview => {}
         }
+        self.update_cursor_for_point(action, phase, point, layout);
     }
 
     fn handle_active_pointer_drag(
@@ -1235,6 +1258,7 @@ impl WebOrbifoldApp {
 
     fn handle_browser_wheel_event(&mut self, event: BrowserWheelEvent) {
         let layout = self.surface_rects();
+        self.cursor_pos = Some(event.position);
         if !layout.contains_piano_input(event.position) {
             return;
         }
@@ -1267,6 +1291,7 @@ impl WebOrbifoldApp {
 
     fn handle_browser_workspace_pointer_event(&mut self, event: BrowserWorkspacePointerEvent) {
         let layout = self.surface_rects();
+        self.cursor_pos = Some(event.position);
         match event.phase {
             WidgetValueEditPhase::Begin => {
                 if self.has_active_pointer_drag() {
@@ -1294,6 +1319,12 @@ impl WebOrbifoldApp {
             WidgetValueEditPhase::Update | WidgetValueEditPhase::Commit => {
                 if self.has_active_pointer_drag() {
                     self.handle_active_pointer_drag(event.phase, event.position, layout);
+                    self.update_cursor_for_point(
+                        "active.drag_capture",
+                        event.phase,
+                        event.position,
+                        layout,
+                    );
                     if matches!(event.phase, WidgetValueEditPhase::Commit) {
                         self.persist_browser_project_snapshot();
                     }
@@ -1306,9 +1337,144 @@ impl WebOrbifoldApp {
                 self.piano_viewport_drag = None;
                 self.piano_keyboard_drag = None;
                 self.note_drag = None;
+                self.update_cursor_for_point(
+                    "active.drag_capture",
+                    event.phase,
+                    event.position,
+                    layout,
+                );
             }
             WidgetValueEditPhase::Preview => {}
         }
+    }
+
+    fn cursor_platform_requests(&mut self) -> Vec<PlatformRequest> {
+        let Some(point) = self.cursor_pos else {
+            return Vec::new();
+        };
+        self.update_cursor_for_point(
+            "cursor.refresh",
+            WidgetValueEditPhase::Preview,
+            point,
+            self.surface_rects(),
+        );
+        if self.cursor_shape == self.applied_cursor_shape {
+            return Vec::new();
+        }
+        self.applied_cursor_shape = self.cursor_shape;
+        vec![PlatformRequest::Cursor(CursorRequest::SetShape(
+            self.cursor_shape,
+        ))]
+    }
+
+    fn update_cursor_for_point(
+        &mut self,
+        action: &str,
+        phase: WidgetValueEditPhase,
+        point: UiPoint,
+        layout: super::native::SurfaceRects,
+    ) {
+        self.cursor_shape = self.cursor_shape_for_action(action, phase, point, layout);
+    }
+
+    fn cursor_shape_for_action(
+        &self,
+        action: &str,
+        phase: WidgetValueEditPhase,
+        point: UiPoint,
+        layout: super::native::SurfaceRects,
+    ) -> CursorShape {
+        if let Some(shape) = self.active_drag_cursor_shape() {
+            return shape;
+        }
+        if let Some(target) = web_workspace_resize_target_from_action(action) {
+            return workspace_resize_cursor(target);
+        }
+        if web_loop_end_drag_mode_from_action(action).is_some() {
+            return CursorShape::ResizeHorizontal;
+        }
+        if let Some(mode) = web_piano_viewport_drag_mode_from_action(action) {
+            return piano_viewport_drag_cursor(mode);
+        }
+        if web_timeline_drag_mode_from_action(action).is_some() {
+            return CursorShape::Pointer;
+        }
+        if action == "piano.keyboard" {
+            return CursorShape::ResizeNorthEastSouthWest;
+        }
+        if action == "piano.grid" {
+            return CursorShape::Crosshair;
+        }
+        if let Some((_note_id, mode)) = web_note_drag_from_action(action) {
+            return match mode {
+                WebNoteDragMode::Move
+                    if matches!(
+                        phase,
+                        WidgetValueEditPhase::Begin | WidgetValueEditPhase::Update
+                    ) =>
+                {
+                    CursorShape::Grabbing
+                }
+                WebNoteDragMode::Move => CursorShape::Grab,
+                WebNoteDragMode::ResizeStart | WebNoteDragMode::ResizeEnd => {
+                    CursorShape::ResizeHorizontal
+                }
+                WebNoteDragMode::Velocity => CursorShape::ResizeVertical,
+            };
+        }
+        if let Some(target) = layout.workspace_resize_target_at_point(&self.app, point) {
+            return workspace_resize_cursor(target);
+        }
+        if layout.loop_end_drag_action_at_point(point).is_some() {
+            return CursorShape::ResizeHorizontal;
+        }
+        if layout.timeline_drag_action_at_point(point).is_some() {
+            return CursorShape::Pointer;
+        }
+        if let Some(region) = layout.piano_note_cursor_region_at_point(&self.app, point) {
+            return match region {
+                PianoNoteCursorRegion::Move => CursorShape::Grab,
+                PianoNoteCursorRegion::ResizeStart | PianoNoteCursorRegion::ResizeEnd => {
+                    CursorShape::ResizeHorizontal
+                }
+                PianoNoteCursorRegion::Velocity => CursorShape::ResizeVertical,
+            };
+        }
+        if layout.contains_piano_keyboard(point) {
+            return CursorShape::ResizeNorthEastSouthWest;
+        }
+        if layout.contains_piano_input(point) {
+            return CursorShape::Crosshair;
+        }
+        CursorShape::Default
+    }
+
+    fn active_drag_cursor_shape(&self) -> Option<CursorShape> {
+        if let Some(active) = self.workspace_resize_drag {
+            return Some(workspace_resize_cursor(active.target));
+        }
+        if let Some(active) = self.piano_viewport_drag {
+            return Some(piano_viewport_drag_cursor(active.mode));
+        }
+        if let Some(active) = self.note_drag {
+            return Some(match active.mode {
+                WebNoteDragMode::Move => CursorShape::Grabbing,
+                WebNoteDragMode::ResizeStart | WebNoteDragMode::ResizeEnd => {
+                    CursorShape::ResizeHorizontal
+                }
+                WebNoteDragMode::Velocity => CursorShape::ResizeVertical,
+            });
+        }
+        if self.piano_keyboard_drag.is_some() {
+            return Some(CursorShape::ResizeNorthEastSouthWest);
+        }
+        if self.loop_end_drag.is_some() {
+            return Some(CursorShape::ResizeHorizontal);
+        }
+        if self.timeline_drag.is_some() {
+            return Some(CursorShape::Pointer);
+        }
+        None
     }
 
     fn note_drag_for_pointer(
@@ -1766,6 +1932,17 @@ fn web_workspace_resize_target_from_action(action: &str) -> Option<WorkspaceResi
     }
 }
 
+fn workspace_resize_cursor(target: WorkspaceResizeTarget) -> CursorShape {
+    match target {
+        WorkspaceResizeTarget::Bottom | WorkspaceResizeTarget::Browser => {
+            CursorShape::ResizeVertical
+        }
+        WorkspaceResizeTarget::Left
+        | WorkspaceResizeTarget::Track
+        | WorkspaceResizeTarget::Right => CursorShape::ResizeHorizontal,
+    }
+}
+
 fn web_loop_end_drag_mode_from_action(action: &str) -> Option<WebLoopEndDragMode> {
     match action {
         "transport.loop_end" => Some(WebLoopEndDragMode::Arrangement),
@@ -1787,6 +1964,13 @@ fn web_piano_viewport_drag_mode_from_action(action: &str) -> Option<WebPianoView
         "piano.viewport.time" => Some(WebPianoViewportDragMode::Time),
         "piano.viewport.pitch" => Some(WebPianoViewportDragMode::Pitch),
         _ => None,
+    }
+}
+
+fn piano_viewport_drag_cursor(mode: WebPianoViewportDragMode) -> CursorShape {
+    match mode {
+        WebPianoViewportDragMode::Time => CursorShape::ResizeHorizontal,
+        WebPianoViewportDragMode::Pitch => CursorShape::ResizeVertical,
     }
 }
 
@@ -1999,6 +2183,7 @@ fn browser_drain_workspace_pointer_events() -> Vec<BrowserWorkspacePointerEvent>
 
 fn browser_workspace_pointer_phase(phase: &str) -> Option<WidgetValueEditPhase> {
     match phase {
+        "preview" => Some(WidgetValueEditPhase::Preview),
         "begin" => Some(WidgetValueEditPhase::Begin),
         "update" => Some(WidgetValueEditPhase::Update),
         "commit" => Some(WidgetValueEditPhase::Commit),
@@ -2599,6 +2784,12 @@ export function install_browser_workspace_pointer_bridge_js(canvasId) {
     }
     orbifoldWorkspacePointerActive = true;
     pushPointerEvent("begin", event);
+  }, { capture: true });
+  canvas.addEventListener("pointermove", (event) => {
+    if (orbifoldWorkspacePointerActive) {
+      return;
+    }
+    pushPointerEvent("preview", event);
   }, { capture: true });
   window.addEventListener("pointermove", (event) => {
     if (!orbifoldWorkspacePointerActive) {

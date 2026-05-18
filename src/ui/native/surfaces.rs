@@ -30,6 +30,15 @@ pub(super) enum LoopBoundary {
     End,
 }
 
+#[cfg(feature = "web-app")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum PianoNoteCursorRegion {
+    Move,
+    ResizeStart,
+    ResizeEnd,
+    Velocity,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(in crate::ui) struct SurfaceRects {
     pub(super) left: UiRect,
@@ -127,6 +136,37 @@ impl SurfaceRects {
             UiPoint::new(x, rect.y + rect.height * 0.5),
             UiPoint::new(x, self.velocity_lane.y),
         ))
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_note_cursor_region_at_point(
+        self,
+        app: &AppState,
+        point: UiPoint,
+    ) -> Option<PianoNoteCursorRegion> {
+        let notes = app.music_project.lock().clip.notes.clone();
+        for note in notes.into_iter().rev() {
+            for velocity_rect in piano_velocity_hit_rects(note.clone(), self) {
+                if rect_contains_point(velocity_rect, point) {
+                    return Some(PianoNoteCursorRegion::Velocity);
+                }
+            }
+            for note_rect in piano_note_rects(note.clone(), self) {
+                if !rect_contains_point(note_rect, point) {
+                    continue;
+                }
+                if let Some(edge_w) = note_resize_edge_width(note_rect.width) {
+                    if point.x <= note_rect.x + edge_w {
+                        return Some(PianoNoteCursorRegion::ResizeStart);
+                    }
+                    if point.x >= note_rect.right() - edge_w {
+                        return Some(PianoNoteCursorRegion::ResizeEnd);
+                    }
+                }
+                return Some(PianoNoteCursorRegion::Move);
+            }
+        }
+        None
     }
 
     #[cfg(feature = "web-app")]
@@ -284,6 +324,11 @@ impl SurfaceRects {
             && point.x <= self.piano_roll.right()
             && point.y >= self.piano_roll.y
             && point.y <= self.piano_roll.bottom()
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn contains_piano_keyboard(self, point: UiPoint) -> bool {
+        rect_contains_point(self.piano_keyboard, point)
     }
 
     pub(in crate::ui) fn piano_wheel_scroll_delta(self, delta: UiPoint, shift: bool) -> (f32, i32) {

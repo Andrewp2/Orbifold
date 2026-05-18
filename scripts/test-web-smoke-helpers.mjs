@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import {
   browserShortcutMappingCases,
+  findBlankPianoGridPoint,
   isQuantizedToSixteenth,
   latestProjectNote,
   persistedNoteCount,
@@ -66,6 +67,23 @@ assert.equal(projectIncludesLoopBeats({ project, loopBeats: 16 }), true);
 assert.equal(projectIncludesLoopBeats({ project, loopBeats: 8 }), false);
 assert.equal(isQuantizedToSixteenth(1.125), true);
 assert.equal(isQuantizedToSixteenth(1.13), false);
+
+assert.deepEqual(
+  findBlankPianoGridPoint(
+    {
+      gridX: 100,
+      gridY: 200,
+      gridWidth: 700,
+      gridHeight: 310,
+      viewStart: 0,
+      viewBeats: 16,
+      minPitch: 50,
+      maxPitch: 80,
+    },
+    { project, loopBeats: 16 }
+  ),
+  { x: 737, y: 205 }
+);
 assert.equal(
   urlForSmokeVariant("reload", "https://example.invalid/Orbifold/?old=1"),
   "https://example.invalid/Orbifold/?old=1&orbifold_smoke=reload"
