@@ -28,11 +28,17 @@ if (isCliEntrypoint()) {
 }
 
 async function runVisualCaptureCli(args) {
-  const parsedArgs = parseArgs(args);
+  let parsedArgs = null;
+  try {
+    parsedArgs = parseArgs(args);
+  } catch (error) {
+    console.error(`Orbifold web visual capture failed: ${error.message ?? error}`);
+    process.exit(2);
+  }
   target = parsedArgs.target;
   outDir = parsedArgs.outDir;
 
-  if (!target) {
+  if (parsedArgs.help || !target) {
     console.error("usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]");
     process.exit(2);
   }
@@ -107,20 +113,39 @@ async function runVisualCaptureCli(args) {
 export function parseArgs(rawArgs) {
   let parsedTarget = "";
   let parsedOutDir = "screenshots/web";
+  let help = false;
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
     if (arg === "--out") {
-      parsedOutDir = rawArgs[index + 1] ?? parsedOutDir;
+      const value = rawArgs[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--out requires a value");
+      }
+      parsedOutDir = value;
       index += 1;
     } else if (arg.startsWith("--out=")) {
-      parsedOutDir = arg.slice("--out=".length);
+      const value = arg.slice("--out=".length);
+      if (!value) {
+        throw new Error("--out requires a value");
+      }
+      parsedOutDir = value;
+    } else if (arg === "--help" || arg === "-h") {
+      help = true;
+      return {
+        target: parsedTarget,
+        outDir: parsedOutDir,
+        help,
+      };
     } else if (!arg.startsWith("--") && !parsedTarget) {
       parsedTarget = arg;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
     }
   }
   return {
     target: parsedTarget,
     outDir: parsedOutDir,
+    help,
   };
 }
 

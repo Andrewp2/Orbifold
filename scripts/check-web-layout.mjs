@@ -24,9 +24,16 @@ if (isCliEntrypoint()) {
 }
 
 async function runLayoutCli(args) {
-  url = args[0] ?? "";
+  let parsedArgs = null;
+  try {
+    parsedArgs = parseLayoutArgs(args);
+  } catch (error) {
+    console.error(`Orbifold web layout check failed: ${error.message ?? error}`);
+    process.exit(2);
+  }
+  url = parsedArgs.url;
 
-  if (!url) {
+  if (parsedArgs.help || !url) {
     console.error("usage: scripts/check-web-layout.mjs <url>");
     process.exit(2);
   }
@@ -89,6 +96,22 @@ async function runLayoutCli(args) {
     await terminateChrome(chrome);
     await removePath(profile);
   }
+}
+
+export function parseLayoutArgs(args) {
+  const parsed = { url: "", help: false };
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    }
+    if (!arg.startsWith("--") && !parsed.url) {
+      parsed.url = arg;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+  return parsed;
 }
 
 function numberFromEnv(name, fallback) {

@@ -6,6 +6,7 @@ import {
   findBlankPianoGridPoint,
   isQuantizedToSixteenth,
   latestProjectNote,
+  parseSmokeArgs,
   persistedNoteCount,
   projectIncludesLoopBeats,
   projectNoteById,
@@ -24,6 +25,18 @@ const project = [
   "note\t3\t6\t2.75\t0\t64\t0\t64\t96",
   "",
 ].join("\n");
+
+assert.deepEqual(parseSmokeArgs(["https://example.invalid/Orbifold"]), {
+  url: "https://example.invalid/Orbifold",
+  help: false,
+});
+assert.deepEqual(parseSmokeArgs(["--help"]), {
+  url: "",
+  help: true,
+});
+assert.throws(() => parseSmokeArgs(["https://example.invalid/Orbifold", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
 
 assert.equal(persistedNoteCount(project), 3);
 assert.deepEqual(projectNotes(project), [

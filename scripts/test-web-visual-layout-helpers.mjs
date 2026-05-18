@@ -6,6 +6,7 @@ import {
   browserFailures,
   isReadyForLayoutCheck,
   layoutFailures,
+  parseLayoutArgs,
   urlForViewport as layoutUrlForViewport,
 } from "./check-web-layout.mjs";
 import {
@@ -20,6 +21,18 @@ import {
 
 const viewport = { label: "desktop-1600x1000", width: 1600, height: 1000, deviceScaleFactor: 1 };
 const goodLayout = layoutState();
+
+assert.deepEqual(parseLayoutArgs(["https://example.invalid/Orbifold"]), {
+  url: "https://example.invalid/Orbifold",
+  help: false,
+});
+assert.deepEqual(parseLayoutArgs(["--help"]), {
+  url: "",
+  help: true,
+});
+assert.throws(() => parseLayoutArgs(["https://example.invalid/Orbifold", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
 
 assert.equal(
   layoutUrlForViewport("https://example.invalid/Orbifold/?old=1", "wide-3840x2160"),
@@ -66,6 +79,7 @@ assert.deepEqual(
 assert.deepEqual(parseVisualArgs(["https://example.invalid/Orbifold"]), {
   target: "https://example.invalid/Orbifold",
   outDir: "screenshots/web",
+  help: false,
 });
 assert.deepEqual(
   parseVisualArgs([
@@ -76,11 +90,27 @@ assert.deepEqual(
   {
     target: "https://example.invalid/Orbifold",
     outDir: "screenshots/final",
+    help: false,
   }
 );
 assert.deepEqual(parseVisualArgs(["--out=screenshots/final"]), {
   target: "",
   outDir: "screenshots/final",
+  help: false,
+});
+assert.deepEqual(parseVisualArgs(["--help"]), {
+  target: "",
+  outDir: "screenshots/web",
+  help: true,
+});
+assert.throws(() => parseVisualArgs(["https://example.invalid/Orbifold", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
+assert.throws(() => parseVisualArgs(["https://example.invalid/Orbifold", "--out"]), {
+  message: /--out requires a value/,
+});
+assert.throws(() => parseVisualArgs(["https://example.invalid/Orbifold", "--out="]), {
+  message: /--out requires a value/,
 });
 assert.match(timestampForPath(), /^\d{4}-\d{2}-\d{2}T\d{6}Z$/);
 assert.equal(

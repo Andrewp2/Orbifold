@@ -4,13 +4,34 @@ import { pathToFileURL } from "node:url";
 import { requireContains, requireWebIndexHtml } from "./check-web-dist.mjs";
 
 if (isCliEntrypoint()) {
-  const target = process.argv[2];
-  if (!target) {
-    console.error("usage: scripts/check-web-live.mjs <https://pages-url/>");
-    process.exit(2);
+  try {
+    const options = parseLiveArgs(process.argv.slice(2));
+    if (options.help || !options.target) {
+      console.error("usage: scripts/check-web-live.mjs <https://pages-url/>");
+      process.exit(2);
+    }
+    const rootHref = await checkWebLive(options.target);
+    console.log(`live web artifact ok: ${rootHref}`);
+  } catch (error) {
+    console.error(`live web artifact failed: ${error.message ?? error}`);
+    process.exit(1);
   }
-  const rootHref = await checkWebLive(target);
-  console.log(`live web artifact ok: ${rootHref}`);
+}
+
+export function parseLiveArgs(args) {
+  const parsed = { target: "", help: false };
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    }
+    if (!arg.startsWith("--") && !parsed.target) {
+      parsed.target = arg;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+  return parsed;
 }
 
 export async function checkWebLive(target, fetchImpl = globalThis.fetch) {

@@ -23,8 +23,15 @@ if (isCliEntrypoint()) {
 }
 
 async function runSmokeCli(args) {
-  url = args[0] ?? "";
-  if (!url) {
+  let parsedArgs = null;
+  try {
+    parsedArgs = parseSmokeArgs(args);
+  } catch (error) {
+    console.error(`Orbifold web smoke failed: ${error.message ?? error}`);
+    process.exit(2);
+  }
+  url = parsedArgs.url;
+  if (parsedArgs.help || !url) {
     console.error("usage: check-web-smoke.mjs <url>");
     process.exit(2);
   }
@@ -88,6 +95,22 @@ async function runSmokeCli(args) {
     await terminateChrome(chrome);
     await removeProfile(profile);
   }
+}
+
+export function parseSmokeArgs(args) {
+  const parsed = { url: "", help: false };
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    }
+    if (!arg.startsWith("--") && !parsed.url) {
+      parsed.url = arg;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+  return parsed;
 }
 
 function numberFromEnv(name, fallback) {

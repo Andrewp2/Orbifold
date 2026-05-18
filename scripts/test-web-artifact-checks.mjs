@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkWebDist, requireWebIndexHtml } from "./check-web-dist.mjs";
-import { checkWebLive, normalizeWebLiveUrl } from "./check-web-live.mjs";
+import { checkWebLive, normalizeWebLiveUrl, parseLiveArgs } from "./check-web-live.mjs";
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "orbifold-web-artifact-checks-"));
 
@@ -31,6 +31,17 @@ try {
     normalizeWebLiveUrl("https://example.invalid/Orbifold?old=1#section").href,
     "https://example.invalid/Orbifold/"
   );
+  assert.deepEqual(parseLiveArgs(["https://example.invalid/Orbifold"]), {
+    target: "https://example.invalid/Orbifold",
+    help: false,
+  });
+  assert.deepEqual(parseLiveArgs(["--help"]), {
+    target: "",
+    help: true,
+  });
+  assert.throws(() => parseLiveArgs(["https://example.invalid/Orbifold", "--bogus"]), {
+    message: /Unknown argument: --bogus/,
+  });
 
   assert.equal(
     await checkWebLive("https://example.invalid/Orbifold", mockFetch()),
