@@ -214,6 +214,7 @@ async function runSmoke(browserWsUrl) {
     await verifyBrowserFileFlows(send, sessionId, artifactsDir);
     await verifyBrowserMidiFlow(send, sessionId);
     await verifyBrowserAudioFlow(send, sessionId);
+    await verifyBrowserAudioFallbackFlow(send);
     await verifyBrowserPersistenceAfterReload(send, sessionId);
     await delay(settleMs);
     return events;
@@ -1403,6 +1404,140 @@ async function verifyBrowserAudioFlow(send, sessionId) {
   );
 }
 
+async function verifyBrowserAudioFallbackFlow(send) {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Runtime.enable", {}, sessionId);
+    await send("Log.enable", {}, sessionId);
+    await send("Network.enable", {}, sessionId);
+    await send("Page.enable", {}, sessionId);
+    await send(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: `(() => {
+          for (const name of ["AudioContext", "webkitAudioContext"]) {
+            const Ctor = window[name];
+            if (!Ctor || !Ctor.prototype) {
+              continue;
+            }
+            try {
+              Object.defineProperty(Ctor.prototype, "setSinkId", {
+                configurable: true,
+                value: undefined,
+              });
+            } catch (_error) {
+              try {
+                delete Ctor.prototype.setSinkId;
+              } catch (_deleteError) {}
+            }
+          }
+        })();`,
+      },
+      sessionId
+    );
+    await send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 1200,
+        height: 760,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId
+    );
+    await send("Page.navigate", { url: urlForSmokeVariant("audio-fallback") }, sessionId);
+    await waitForOrbifoldReady(send, sessionId);
+
+    await dispatchBrowserAction(send, sessionId, "audio.refresh");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.audioOutputCount === 1 &&
+        !state.audioOutputSelectionSupported &&
+        state.browserAudioOutputNames === "Browser audio" &&
+        state.browserAudioDiagnostic.includes("Web Audio: default") &&
+        state.lastStatus.includes("Refreshed audio outputs: 1 audio output"),
+      "browser audio refresh did not expose the default fallback output when sink selection is unavailable"
+    );
+
+    await activateBrowserDocument(send, sessionId);
+    await dispatchBrowserAction(send, sessionId, "audio.connect");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.audioStreamConnected &&
+        state.connectedAudioOutput === "Browser audio" &&
+        state.audioSinkRequested === "Browser audio" &&
+        state.audioSinkSelectionUnsupported &&
+        state.audioContextCreated &&
+        state.audioProcessorAttached &&
+        state.audioResumeRequested,
+      "browser audio fallback connect did not create a default Web Audio stream"
+    );
+
+    await activateBrowserDocument(send, sessionId);
+    await dispatchBrowserAction(send, sessionId, "audio.test_a4");
+    await waitForProjectState(
+      send,
+      sessionId,
+      (state) =>
+        state.lastStatus.includes("Test tone A4") &&
+        state.audioCallbackCount > 0 &&
+        state.audioFrameCount > 0 &&
+        state.audioNonzero &&
+        state.audioPeak > 0.0001,
+      "browser audio fallback test tone did not produce nonzero Web Audio samples"
+    );
+  } finally {
+    await send("Target.closeTarget", { targetId }).catch(() => {});
+  }
+}
+
+async function activateBrowserDocument(send, sessionId) {
+  const point = { x: 12, y: 12 };
+  await send(
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseMoved",
+      x: point.x,
+      y: point.y,
+      button: "none",
+    },
+    sessionId
+  );
+  await send(
+    "Input.dispatchMouseEvent",
+    {
+      type: "mousePressed",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    },
+    sessionId
+  );
+  await delay(80);
+  await send(
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseReleased",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    },
+    sessionId
+  );
+}
+
 async function verifyBrowserPersistenceAfterReload(send, sessionId) {
   await verifyBrowserUiScaleReload(send, sessionId);
   await setBrowserPanelVisibility(send, sessionId, {
@@ -2241,6 +2376,7 @@ async function evaluateProjectState(send, sessionId) {
         audioSinkRequested: document.body.dataset.orbifoldAudioSinkRequested ?? "",
         audioSinkResolved: document.body.dataset.orbifoldAudioSinkResolved ?? "",
         audioSinkDeviceId: document.body.dataset.orbifoldAudioSinkDeviceId ?? "",
+        audioSinkSelectionUnsupported: document.body.dataset.orbifoldAudioSinkSelectionUnsupported === "1",
         smokeSinkId: document.body.dataset.orbifoldSmokeSinkId ?? "",
         audioStreamConnected: document.body.dataset.orbifoldAudioStreamConnected === "1",
         audioContextCreated: document.body.dataset.orbifoldAudioContextCreated === "1",

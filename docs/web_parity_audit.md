@@ -87,9 +87,10 @@ The headless smoke currently covers:
 - Web Audio output discovery through the browser device APIs when sink
   selection is available, named-output routing through a browser audio-output
   stub, fallback `Browser audio` discovery when it is not, audio-context
-  creation, processor attachment, sink-selection request/error surfacing,
-  resume request, Orbifold audio connected state, callback activity, rendered
-  frame count, nonzero A4 test-tone samples, and browser device diagnostics
+  creation, default-output connection, processor attachment, sink-selection
+  request/error surfacing, resume request, Orbifold audio connected state,
+  callback activity, rendered frame count, nonzero A4 test-tone samples, and
+  browser device diagnostics
   that report Web Audio/Web MIDI support, scan counts, connection state, and
   sink-routing state.
 
