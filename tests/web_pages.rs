@@ -402,6 +402,7 @@ fn web_manual_report_validator_requires_real_device_evidence() {
 
     for required in [
         "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>",
+        "manual web device report failed:",
         "orbifold.web_manual_device_parity.v1",
         "manualDeviceVerifierCompleted",
         "manualAudibleWebAudio",

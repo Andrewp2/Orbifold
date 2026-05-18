@@ -41,10 +41,15 @@ if (isCliEntrypoint()) {
     process.exit(2);
   }
 
-  const reportPath = await resolveReportPath(target);
-  const report = JSON.parse(await readFile(reportPath, "utf8"));
-  validateManualDeviceReport(report);
-  console.log(`manual web device report ok: ${reportPath}`);
+  try {
+    const reportPath = await resolveReportPath(target);
+    const report = JSON.parse(await readFile(reportPath, "utf8"));
+    validateManualDeviceReport(report);
+    console.log(`manual web device report ok: ${reportPath}`);
+  } catch (error) {
+    console.error(`manual web device report failed: ${error.message ?? error}`);
+    process.exit(1);
+  }
 }
 
 export function validateManualDeviceReport(report) {
