@@ -290,6 +290,7 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterBrowserFileFlows.lastStatus,
     noteCount: report.states.afterBrowserFileFlows.noteCount,
     assetCount: report.states.afterBrowserFileFlows.assetCount,
+    project: report.states.afterBrowserFileFlows.project,
     scaleDescription: report.states.afterBrowserFileFlows.scaleDescription,
     scalaPath: report.states.afterBrowserFileFlows.scalaPath,
     lumatonePath: report.states.afterBrowserFileFlows.lumatonePath,

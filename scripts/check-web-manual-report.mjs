@@ -252,9 +252,25 @@ export function validateManualDeviceReport(report) {
     "states.afterBrowserFileFlows.frameCount"
   );
   const browserFileEvidence = requirePassedCheckEvidence("manualBrowserFileFlows");
+  requireTruthy(
+    browserFileEvidence.downloadFileName,
+    "manualBrowserFileFlows.downloadFileName"
+  );
+  if (!String(browserFileEvidence.downloadFileName).endsWith(".orbifold")) {
+    throw new Error(
+      `manualBrowserFileFlows.downloadFileName should end with .orbifold, got ${JSON.stringify(
+        browserFileEvidence.downloadFileName
+      )}`
+    );
+  }
   requirePositiveNumber(browserFileEvidence.downloadSize, "manualBrowserFileFlows.downloadSize");
+  requireTruthy(browserFileEvidence.project, "manualBrowserFileFlows.project");
+  if (!String(browserFileEvidence.project).includes("orbifold_project=1")) {
+    throw new Error("manualBrowserFileFlows.project should contain an orbifold project marker");
+  }
   requirePositiveNumber(browserFileEvidence.assetCount, "manualBrowserFileFlows.assetCount");
   requireTruthy(browserFileEvidence.scaleDescription, "manualBrowserFileFlows.scaleDescription");
+  requireTruthy(browserFileEvidence.scalaPath, "manualBrowserFileFlows.scalaPath");
   requireTruthy(browserFileEvidence.lumatonePath, "manualBrowserFileFlows.lumatonePath");
   requireEqual(browserFileEvidence.lumatoneLoaded, true, "manualBrowserFileFlows.lumatoneLoaded");
 
