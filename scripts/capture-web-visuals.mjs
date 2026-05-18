@@ -535,5 +535,9 @@ async function terminateChrome(child) {
 }
 
 async function removePath(targetPath) {
-  await fs.promises.rm(targetPath, { recursive: true, force: true });
+  try {
+    await fs.promises.rm(targetPath, { recursive: true, force: true });
+  } catch {
+    // Temporary browser profile cleanup is best-effort.
+  }
 }
