@@ -365,6 +365,7 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         "--report",
         "--visual-out",
         "--skip-visual-capture",
+        "visual capture was skipped; rerun without --skip-visual-capture for parity",
         "manualDeviceReport",
         "manualReportTarget",
         "manual report target",

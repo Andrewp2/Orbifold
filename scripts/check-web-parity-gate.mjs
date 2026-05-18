@@ -39,9 +39,23 @@ try {
       "--out",
       options.visualOut,
     ]);
+  } else {
+    gateReport.steps.push({
+      name: "deployedVisualCapture",
+      command: ["skipped"],
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      exitCode: 1,
+      signal: null,
+      stdoutTail: "",
+      stderrTail: "visual capture skipped; this is not complete web parity evidence",
+    });
   }
   await runStep("manualDeviceReport", ["check-web-manual-report.mjs", options.report]);
   await verifyManualReportTarget(options.report, options.url);
+  if (options.skipVisualCapture) {
+    throw new Error("visual capture was skipped; rerun without --skip-visual-capture for parity");
+  }
   gateReport.passed = true;
   console.log("\nOrbifold web parity gate passed.");
 } catch (error) {
