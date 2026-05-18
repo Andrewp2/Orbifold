@@ -59,6 +59,12 @@ export async function runManualDeviceCli(args) {
     process.exit(2);
   }
 
+  const security = manualUrlSecurityEvidence(options.url);
+  if (!security.passed) {
+    console.error(`Manual device target is not usable for Web MIDI: ${security.detail}`);
+    process.exit(2);
+  }
+
   if (typeof WebSocket !== "function") {
     console.error("Node.js with a global WebSocket implementation is required.");
     process.exit(2);
@@ -411,6 +417,8 @@ export async function runManualDevicePreflight(url) {
         : "Node.js with a global WebSocket implementation is required",
   });
 
+  checks.push(manualUrlSecurityEvidence(url));
+
   const chromePath = findChrome();
   checks.push({
     name: "chrome",
@@ -459,6 +467,41 @@ export function printManualDevicePreflight(preflight) {
       `preflight ok; rerun without --preflight in an interactive terminal with ${manualEvidenceRequirements}`
     );
   }
+}
+
+export function manualUrlSecurityEvidence(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:") {
+      return {
+        name: "secure-context",
+        passed: true,
+        detail: "HTTPS target can use browser secure-context APIs",
+      };
+    }
+    if (url.protocol === "http:" && isLocalhostName(url.hostname)) {
+      return {
+        name: "secure-context",
+        passed: true,
+        detail: "localhost HTTP target can use browser secure-context APIs",
+      };
+    }
+    return {
+      name: "secure-context",
+      passed: false,
+      detail: `${url.href} is not HTTPS or localhost; real Web MIDI requires a browser secure context`,
+    };
+  } catch (error) {
+    return {
+      name: "secure-context",
+      passed: false,
+      detail: `invalid URL: ${error.message ?? error}`,
+    };
+  }
+}
+
+function isLocalhostName(hostname) {
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname);
 }
 
 export function createManualDeviceReport(

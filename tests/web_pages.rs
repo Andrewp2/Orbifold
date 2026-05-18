@@ -334,6 +334,9 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "manual web device preflight:",
         "runManualDevicePreflight",
         "printManualDevicePreflight",
+        "manualUrlSecurityEvidence",
+        "secure-context",
+        "real Web MIDI requires a browser secure context",
         "manualDeviceFinalizerCommands",
         "manualDeviceNextStepLines",
         "check-web-parity-gate.mjs",
@@ -399,6 +402,8 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
     for required in [
         "parseManualDeviceArgs",
         "createManualDeviceReport",
+        "manualUrlSecurityEvidence",
+        "real Web MIDI requires a browser secure context",
         "persistedNoteCount",
         "--out=manual-reports",
         "preflight: true",
@@ -422,6 +427,12 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         assert!(
             docs.contains("./scripts/check-web-manual-devices.mjs"),
             "manual web device parity workflow should be documented"
+        );
+    }
+    for docs in [readme, audit] {
+        assert!(
+            docs.contains("secure-context eligibility for Web MIDI"),
+            "manual web device preflight secure-context check should be documented"
         );
     }
 }
@@ -476,6 +487,9 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "chrome.protocolVersion",
         "browserEvents",
         "manualReportBrowserFailures",
+        "requireUniqueCheckNames",
+        "requireEveryCheckPassed",
+        "should appear exactly once",
         "browserEvents should not contain runtime errors",
         "Runtime.exceptionThrown",
         "Runtime.consoleAPICalled",
@@ -511,6 +525,8 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "parseManualReportArgs",
         "Unknown argument: --bogus",
         "validateManualDeviceReport(report)",
+        "checks.diagnosticExtra.pass expected true",
+        "should appear exactly once",
         "browserEvents should not contain runtime errors",
         "manualVisualInspection.inspectedLarge.textAuditIssueCount expected 0",
         "manualVisualInspection evidence should show a resize or high-DPI checkpoint",
@@ -659,6 +675,9 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         "validateParityCompletionReport",
         "validateParityCompletionReportFile",
         "validateVisualCaptureManifest",
+        "requireUniqueStepNames",
+        "requireEveryStepPassed",
+        "should appear exactly once",
         "resolveVisualManifestPath",
         "validateManualDeviceReport",
         "requireArtifactFingerprint",
@@ -688,6 +707,8 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         "passed expected true, got false",
         "skippedVisualCapture expected false, got true",
         "steps.deployedSmoke should be an object",
+        "steps.diagnosticExtra.exitCode expected 0",
+        "should appear exactly once",
         "steps.deployedVisualCapture.command should not be skipped",
         "manualReportArtifact should confirm the manual artifact matches live",
         "manual report artifact should match live artifact",

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import {
   createManualDeviceReport,
+  manualUrlSecurityEvidence,
   manualDeviceFinalizerCommands,
   manualDeviceNextStepLines,
   parseManualDeviceArgs,
@@ -62,6 +63,15 @@ assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", 
   message: /--out requires a value/,
 });
 
+assert.equal(manualUrlSecurityEvidence("https://example.invalid/Orbifold/").passed, true);
+assert.equal(manualUrlSecurityEvidence("http://localhost:4173/").passed, true);
+assert.equal(manualUrlSecurityEvidence("http://127.0.0.1:4173/").passed, true);
+assert.equal(manualUrlSecurityEvidence("http://example.invalid/Orbifold/").passed, false);
+assert.match(
+  manualUrlSecurityEvidence("http://example.invalid/Orbifold/").detail,
+  /real Web MIDI requires a browser secure context/
+);
+
 assert.equal(persistedNoteCount("orbifold_project=1\nnote\t1\nnote\t2\n"), 2);
 assert.equal(persistedNoteCount("orbifold_project=1\n"), 0);
 assert.equal(persistedNoteCount(null), 0);
@@ -114,6 +124,11 @@ const preflightOutput = captureConsole(() =>
     passed: true,
     url: "https://example.invalid/Orbifold/",
     checks: [
+      {
+        name: "secure-context",
+        passed: true,
+        detail: "HTTPS target can use browser secure-context APIs",
+      },
       {
         name: "chrome",
         passed: true,

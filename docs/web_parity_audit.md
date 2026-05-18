@@ -161,8 +161,8 @@ these manual checks before treating web as parity-complete:
   or inspect the deployed visual artifact uploaded by the Pages workflow.
 - Run `./scripts/check-web-manual-devices.mjs` with `--preflight` against the
   deployed Pages URL before the interactive hardware pass. The preflight checks
-  Chrome discovery, Node WebSocket support, and the deployed artifact
-  fingerprint without opening the manual browser session.
+  Chrome discovery, Node WebSocket support, secure-context eligibility for Web MIDI,
+  and the deployed artifact fingerprint without opening the manual browser session.
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence. The
