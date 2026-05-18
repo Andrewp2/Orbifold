@@ -54,6 +54,7 @@ fn pages_workflow_builds_and_deploys_dist() {
 
     for required in [
         "wasm32-unknown-unknown",
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
         "cargo install wasm-bindgen-cli --version 0.2.121 --locked",
         "./scripts/build-web.sh dist",
         "actions/setup-node@v4",
@@ -82,6 +83,24 @@ fn pages_workflow_builds_and_deploys_dist() {
         assert!(
             workflow.contains(required),
             ".github/workflows/pages.yml should mention {required}"
+        );
+    }
+}
+
+#[test]
+fn ci_workflow_opts_github_javascript_actions_into_node24() {
+    let workflow = include_str!("../.github/workflows/ci.yml");
+
+    for required in [
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
+        "actions/checkout@v4",
+        "cargo fmt --check",
+        "cargo test",
+        "cargo clippy --all-targets -- -D warnings",
+    ] {
+        assert!(
+            workflow.contains(required),
+            ".github/workflows/ci.yml should mention {required}"
         );
     }
 }
