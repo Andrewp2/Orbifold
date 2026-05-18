@@ -57,8 +57,9 @@ The headless smoke currently covers:
 - WebGPU availability and high-DPI canvas backing-store scaling,
 - ordinary toolbar clicks through the canvas hit-testing path,
 - action dispatch and keyboard shortcut dispatch,
-- piano-roll double-click creation, note drag, edge resize, wheel pan/zoom, and
-  workspace splitter drags,
+- piano-roll double-click creation, note drag, edge resize, wheel pan/zoom,
+  arrangement/piano-ruler seeking, loop-end dragging, and workspace splitter
+  drags,
 - browser project save/download and project open through real browser file
   inputs,
 - dirty-project open confirmation before creating a browser file input,

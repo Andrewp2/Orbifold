@@ -203,6 +203,7 @@ async function runSmoke(browserWsUrl) {
     await verifyPianoGridDoubleClick(send, sessionId);
     await verifyPianoNoteDrag(send, sessionId);
     await verifyPianoNoteResize(send, sessionId);
+    await verifyTimelineAndLoopGestures(send, sessionId);
     await verifyPianoWheelNavigation(send, sessionId);
     await verifyWorkspaceResizeGestures(send, sessionId);
     await verifyBrowserFileFlows(send, sessionId, artifactsDir);
@@ -689,6 +690,97 @@ async function verifyWorkspaceResizeGestures(send, sessionId) {
     send,
     sessionId,
     (layout) => Math.abs(layout.pianoRollHeight - beforeBottom) > 20
+  );
+}
+
+async function verifyTimelineAndLoopGestures(send, sessionId) {
+  let layout = await waitForLayoutGeometry(send, sessionId, (layout) => {
+    return (
+      layout.arrangementSeekStartX > 0 &&
+      layout.arrangementSeekEndX > 0 &&
+      layout.pianoSeekStartX > 0 &&
+      layout.pianoSeekEndX > 0 &&
+      layout.arrangementLoopEndStartX > 0 &&
+      layout.arrangementLoopEndTargetX > 0
+    );
+  });
+  const initialLoopState = await evaluateProjectState(send, sessionId);
+
+  await dragPointer(send, sessionId, {
+    startX: layout.arrangementLoopEndStartX,
+    startY: layout.arrangementLoopEndStartY,
+    endX: layout.arrangementLoopEndTargetX,
+    endY: layout.arrangementLoopEndTargetY,
+  });
+  const arrangementLoopState = await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      Math.abs(state.loopBeats - initialLoopState.loopBeats) > 0.01 &&
+      projectIncludesLoopBeats(state) &&
+      state.lastStatus.includes("Loop length"),
+    `browser arrangement loop-end drag did not resize loop length; layout: ${JSON.stringify(
+      layout
+    )}`
+  );
+
+  layout = await waitForLayoutGeometry(send, sessionId, (layout) => {
+    return (
+      layout.pianoLoopEndStartX > 0 &&
+      layout.pianoLoopEndTargetX > 0 &&
+      Math.abs(layout.arrangementLoopEndStartX - layout.arrangementLoopEndTargetX) > 1
+    );
+  });
+  await dragPointer(send, sessionId, {
+    startX: layout.pianoLoopEndStartX,
+    startY: layout.pianoLoopEndStartY,
+    endX: layout.pianoLoopEndTargetX,
+    endY: layout.pianoLoopEndTargetY,
+  });
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      Math.abs(state.loopBeats - arrangementLoopState.loopBeats) > 0.01 &&
+      projectIncludesLoopBeats(state) &&
+      state.lastStatus.includes("Loop length"),
+    "browser piano loop-end drag did not resize loop length"
+  );
+
+  layout = await waitForLayoutGeometry(send, sessionId, (layout) => {
+    return (
+      layout.arrangementSeekStartX > 0 &&
+      layout.arrangementSeekEndX > 0 &&
+      layout.pianoSeekStartX > 0 &&
+      layout.pianoSeekEndX > 0
+    );
+  });
+  await dragPointer(send, sessionId, {
+    startX: layout.arrangementSeekStartX,
+    startY: layout.arrangementSeekStartY,
+    endX: layout.arrangementSeekEndX,
+    endY: layout.arrangementSeekEndY,
+  });
+  const arrangementSeekState = await waitForProjectState(
+    send,
+    sessionId,
+    (state) => state.transportPositionBeats > 1 && state.lastStatus.includes("Seek"),
+    "browser arrangement ruler drag did not seek transport"
+  );
+
+  await dragPointer(send, sessionId, {
+    startX: layout.pianoSeekEndX,
+    startY: layout.pianoSeekEndY,
+    endX: layout.pianoSeekStartX,
+    endY: layout.pianoSeekStartY,
+  });
+  await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      Math.abs(state.transportPositionBeats - arrangementSeekState.transportPositionBeats) > 0.5 &&
+      state.lastStatus.includes("Seek"),
+    "browser piano ruler drag did not seek transport"
   );
 }
 
@@ -1359,7 +1451,25 @@ async function evaluateLayoutGeometry(send, sessionId) {
         bottomResizeEndX: Number(document.body.dataset.orbifoldBottomResizeEndX ?? 0),
         bottomResizeEndY: Number(document.body.dataset.orbifoldBottomResizeEndY ?? 0),
         rightPanelWidth: Number(document.body.dataset.orbifoldRightPanelWidth ?? 0),
-        pianoRollHeight: Number(document.body.dataset.orbifoldPianoRollHeight ?? 0)
+        pianoRollHeight: Number(document.body.dataset.orbifoldPianoRollHeight ?? 0),
+        pianoViewStart: Number(document.body.dataset.orbifoldPianoViewStart ?? 0),
+        pianoViewBeats: Number(document.body.dataset.orbifoldPianoViewBeats ?? 0),
+        arrangementSeekStartX: Number(document.body.dataset.orbifoldArrangementSeekStartX ?? 0),
+        arrangementSeekStartY: Number(document.body.dataset.orbifoldArrangementSeekStartY ?? 0),
+        arrangementSeekEndX: Number(document.body.dataset.orbifoldArrangementSeekEndX ?? 0),
+        arrangementSeekEndY: Number(document.body.dataset.orbifoldArrangementSeekEndY ?? 0),
+        pianoSeekStartX: Number(document.body.dataset.orbifoldPianoSeekStartX ?? 0),
+        pianoSeekStartY: Number(document.body.dataset.orbifoldPianoSeekStartY ?? 0),
+        pianoSeekEndX: Number(document.body.dataset.orbifoldPianoSeekEndX ?? 0),
+        pianoSeekEndY: Number(document.body.dataset.orbifoldPianoSeekEndY ?? 0),
+        arrangementLoopEndStartX: Number(document.body.dataset.orbifoldArrangementLoopEndStartX ?? 0),
+        arrangementLoopEndStartY: Number(document.body.dataset.orbifoldArrangementLoopEndStartY ?? 0),
+        arrangementLoopEndTargetX: Number(document.body.dataset.orbifoldArrangementLoopEndTargetX ?? 0),
+        arrangementLoopEndTargetY: Number(document.body.dataset.orbifoldArrangementLoopEndTargetY ?? 0),
+        pianoLoopEndStartX: Number(document.body.dataset.orbifoldPianoLoopEndStartX ?? 0),
+        pianoLoopEndStartY: Number(document.body.dataset.orbifoldPianoLoopEndStartY ?? 0),
+        pianoLoopEndTargetX: Number(document.body.dataset.orbifoldPianoLoopEndTargetX ?? 0),
+        pianoLoopEndTargetY: Number(document.body.dataset.orbifoldPianoLoopEndTargetY ?? 0)
       })`,
       returnByValue: true,
     },
@@ -1479,6 +1589,8 @@ async function evaluateProjectState(send, sessionId) {
         settings: localStorage.getItem("orbifold.settings.v1") || "",
         title: document.title,
         lastAction: document.body.dataset.orbifoldLastAction ?? "",
+        lastPointerAction: document.body.dataset.orbifoldLastPointerAction ?? "",
+        lastPointerPhase: document.body.dataset.orbifoldLastPointerPhase ?? "",
         noteCount: Number(document.body.dataset.orbifoldProjectNoteCount ?? 0),
         lastStatus: document.body.dataset.orbifoldLastStatus ?? "",
         frameCount: Number(document.body.dataset.orbifoldFrameCount ?? 0),
@@ -1498,6 +1610,8 @@ async function evaluateProjectState(send, sessionId) {
         audioFrameCount: Number(document.body.dataset.orbifoldAudioFrameCount ?? 0),
         audioPeak: Number(document.body.dataset.orbifoldAudioPeak ?? 0),
         audioNonzero: document.body.dataset.orbifoldAudioNonzero === "1",
+        transportPositionBeats: Number(document.body.dataset.orbifoldTransportPositionBeats ?? 0),
+        loopBeats: Number(document.body.dataset.orbifoldLoopBeats ?? 0),
         uiScale: Number(document.body.dataset.orbifoldUiScale ?? 0),
         showAssetBrowser: document.body.dataset.orbifoldShowAssetBrowser === "1",
         showScaleBrowser: document.body.dataset.orbifoldShowScaleBrowser === "1",
@@ -1557,6 +1671,10 @@ function thirdNoteDurationBeat(projectText) {
     }
   }
   return Number.NaN;
+}
+
+function projectIncludesLoopBeats(state) {
+  return state.project.includes(`\nloop_beats=${state.loopBeats}\n`);
 }
 
 async function waitForOrbifoldReady(send, sessionId) {

@@ -11,6 +11,7 @@ use wasm_bindgen::JsValue;
 use crate::app::{AppState, AudioAssetKind, WorkspaceResizeTarget};
 use crate::project::ProjectFile;
 use crate::settings::AppSettings;
+use crate::time::AppInstant;
 
 use super::actions::{canonical_action_name, dispatch_action, handle_text_edit_action};
 
@@ -376,7 +377,15 @@ impl WebOrbifoldApp {
 
     fn publish_browser_runtime_state(&self) {
         let midi_last = self.app.midi_last.lock().clone();
-        let transport_playing = self.app.music_project.lock().transport.playing;
+        let (note_count, transport_playing, transport_position_beats, loop_beats) = {
+            let project = self.app.music_project.lock();
+            (
+                project.clip.notes.len() as f64,
+                project.transport.playing,
+                project.current_position_beats(AppInstant::now()) as f64,
+                project.transport.loop_beats as f64,
+            )
+        };
         let scale = self.app.scale_state.lock().scale.clone();
         let scala_path = self
             .app
@@ -393,7 +402,7 @@ impl WebOrbifoldApp {
         let lumatone_loaded = self.app.lumatone_map.lock().is_some();
         publish_runtime_state_js(
             &self.app.last_status,
-            self.app.music_project.lock().clip.notes.len() as f64,
+            note_count,
             self.app.audio_assets.len() as f64,
             self.app.midi_inputs.len() as f64,
             &self.app.connected_midi_input,
@@ -409,6 +418,8 @@ impl WebOrbifoldApp {
             &self.app.connected_audio_output,
             self.app.audio_stream.is_some(),
             transport_playing,
+            transport_position_beats,
+            loop_beats,
             self.app.ui_scale() as f64,
             self.app.show_asset_browser,
             self.app.show_scale_browser,
@@ -474,6 +485,16 @@ impl WebOrbifoldApp {
         let bottom_resize = layout
             .workspace_resize_point_for(&self.app, WorkspaceResizeTarget::Bottom)
             .unwrap_or_else(|| UiPoint::new(0.0, 0.0));
+        let arrangement_seek_start = layout.arrangement_ruler_point_for_fraction(0.25);
+        let arrangement_seek_end = layout.arrangement_ruler_point_for_fraction(0.75);
+        let piano_seek_start = layout.piano_ruler_point_for_fraction(0.25);
+        let piano_seek_end = layout.piano_ruler_point_for_fraction(0.75);
+        let (arrangement_loop_start, arrangement_loop_end) = layout
+            .arrangement_loop_end_drag_points(12.0)
+            .unwrap_or_else(|| (UiPoint::new(0.0, 0.0), UiPoint::new(0.0, 0.0)));
+        let (piano_loop_start, piano_loop_end) = layout
+            .piano_loop_end_drag_points(4.0)
+            .unwrap_or_else(|| (UiPoint::new(0.0, 0.0), UiPoint::new(0.0, 0.0)));
         publish_layout_automation_js(
             right_resize.x as f64,
             right_resize.y as f64,
@@ -485,6 +506,22 @@ impl WebOrbifoldApp {
             (bottom_resize.y - 120.0).max(8.0) as f64,
             layout.right_panel_width() as f64,
             layout.piano_roll_height() as f64,
+            arrangement_seek_start.x as f64,
+            arrangement_seek_start.y as f64,
+            arrangement_seek_end.x as f64,
+            arrangement_seek_end.y as f64,
+            piano_seek_start.x as f64,
+            piano_seek_start.y as f64,
+            piano_seek_end.x as f64,
+            piano_seek_end.y as f64,
+            arrangement_loop_start.x as f64,
+            arrangement_loop_start.y as f64,
+            arrangement_loop_end.x as f64,
+            arrangement_loop_end.y as f64,
+            piano_loop_start.x as f64,
+            piano_loop_start.y as f64,
+            piano_loop_end.x as f64,
+            piano_loop_end.y as f64,
         );
     }
 
@@ -518,6 +555,9 @@ impl WebOrbifoldApp {
             point.y as f64,
         );
         let layout = self.surface_rects();
+        if action == "active.drag_capture" && self.workspace_pointer_bridge_installed {
+            return;
+        }
         if action == "active.drag_capture" {
             self.handle_active_pointer_drag(phase, point, layout);
             return;
@@ -1117,6 +1157,9 @@ impl WebOrbifoldApp {
         let layout = self.surface_rects();
         match event.phase {
             WidgetValueEditPhase::Begin => {
+                if self.has_active_pointer_drag() {
+                    return;
+                }
                 if let Some(target) =
                     layout.workspace_resize_target_at_point(&self.app, event.position)
                 {
@@ -1126,20 +1169,31 @@ impl WebOrbifoldApp {
                         event.position,
                         layout,
                     );
+                } else if let Some(action) = layout.loop_end_drag_action_at_point(event.position)
+                    && let Some(mode) = web_loop_end_drag_mode_from_action(action)
+                {
+                    self.handle_loop_end_drag_action(mode, event.phase, event.position, layout);
+                } else if let Some(action) = layout.timeline_drag_action_at_point(event.position)
+                    && let Some(mode) = web_timeline_drag_mode_from_action(action)
+                {
+                    self.handle_timeline_drag_action(mode, event.phase, event.position, layout);
                 }
             }
             WidgetValueEditPhase::Update | WidgetValueEditPhase::Commit => {
-                if let Some(active) = self.workspace_resize_drag {
-                    self.handle_workspace_resize_action(
-                        active.target,
-                        event.phase,
-                        event.position,
-                        layout,
-                    );
+                if self.has_active_pointer_drag() {
+                    self.handle_active_pointer_drag(event.phase, event.position, layout);
+                    if matches!(event.phase, WidgetValueEditPhase::Commit) {
+                        self.persist_browser_project_snapshot();
+                    }
                 }
             }
             WidgetValueEditPhase::Cancel => {
                 self.workspace_resize_drag = None;
+                self.timeline_drag = None;
+                self.loop_end_drag = None;
+                self.piano_viewport_drag = None;
+                self.piano_keyboard_drag = None;
+                self.note_drag = None;
             }
             WidgetValueEditPhase::Preview => {}
         }
@@ -2072,6 +2126,8 @@ export function publish_runtime_state_js(
   connectedAudioOutput,
   audioStreamConnected,
   transportPlaying,
+  transportPositionBeats,
+  loopBeats,
   uiScale,
   showAssetBrowser,
   showScaleBrowser,
@@ -2092,6 +2148,8 @@ export function publish_runtime_state_js(
   document.body.dataset.orbifoldConnectedAudioOutput = String(connectedAudioOutput || "");
   document.body.dataset.orbifoldAudioStreamConnected = audioStreamConnected ? "1" : "0";
   document.body.dataset.orbifoldTransportPlaying = transportPlaying ? "1" : "0";
+  document.body.dataset.orbifoldTransportPositionBeats = String(transportPositionBeats || 0);
+  document.body.dataset.orbifoldLoopBeats = String(loopBeats || 0);
   document.body.dataset.orbifoldUiScale = String(uiScale || 1);
   document.body.dataset.orbifoldShowAssetBrowser = showAssetBrowser ? "1" : "0";
   document.body.dataset.orbifoldShowScaleBrowser = showScaleBrowser ? "1" : "0";
@@ -2159,7 +2217,23 @@ export function publish_layout_automation_js(
   bottomResizeEndX,
   bottomResizeEndY,
   rightPanelWidth,
-  pianoRollHeight
+  pianoRollHeight,
+  arrangementSeekStartX,
+  arrangementSeekStartY,
+  arrangementSeekEndX,
+  arrangementSeekEndY,
+  pianoSeekStartX,
+  pianoSeekStartY,
+  pianoSeekEndX,
+  pianoSeekEndY,
+  arrangementLoopEndStartX,
+  arrangementLoopEndStartY,
+  arrangementLoopEndTargetX,
+  arrangementLoopEndTargetY,
+  pianoLoopEndStartX,
+  pianoLoopEndStartY,
+  pianoLoopEndTargetX,
+  pianoLoopEndTargetY
 ) {
   document.body.dataset.orbifoldRightResizeX = String(rightResizeX || 0);
   document.body.dataset.orbifoldRightResizeY = String(rightResizeY || 0);
@@ -2171,6 +2245,22 @@ export function publish_layout_automation_js(
   document.body.dataset.orbifoldBottomResizeEndY = String(bottomResizeEndY || 0);
   document.body.dataset.orbifoldRightPanelWidth = String(rightPanelWidth || 0);
   document.body.dataset.orbifoldPianoRollHeight = String(pianoRollHeight || 0);
+  document.body.dataset.orbifoldArrangementSeekStartX = String(arrangementSeekStartX || 0);
+  document.body.dataset.orbifoldArrangementSeekStartY = String(arrangementSeekStartY || 0);
+  document.body.dataset.orbifoldArrangementSeekEndX = String(arrangementSeekEndX || 0);
+  document.body.dataset.orbifoldArrangementSeekEndY = String(arrangementSeekEndY || 0);
+  document.body.dataset.orbifoldPianoSeekStartX = String(pianoSeekStartX || 0);
+  document.body.dataset.orbifoldPianoSeekStartY = String(pianoSeekStartY || 0);
+  document.body.dataset.orbifoldPianoSeekEndX = String(pianoSeekEndX || 0);
+  document.body.dataset.orbifoldPianoSeekEndY = String(pianoSeekEndY || 0);
+  document.body.dataset.orbifoldArrangementLoopEndStartX = String(arrangementLoopEndStartX || 0);
+  document.body.dataset.orbifoldArrangementLoopEndStartY = String(arrangementLoopEndStartY || 0);
+  document.body.dataset.orbifoldArrangementLoopEndTargetX = String(arrangementLoopEndTargetX || 0);
+  document.body.dataset.orbifoldArrangementLoopEndTargetY = String(arrangementLoopEndTargetY || 0);
+  document.body.dataset.orbifoldPianoLoopEndStartX = String(pianoLoopEndStartX || 0);
+  document.body.dataset.orbifoldPianoLoopEndStartY = String(pianoLoopEndStartY || 0);
+  document.body.dataset.orbifoldPianoLoopEndTargetX = String(pianoLoopEndTargetX || 0);
+  document.body.dataset.orbifoldPianoLoopEndTargetY = String(pianoLoopEndTargetY || 0);
 }
 
 export function install_browser_keyboard_shortcuts_js() {
@@ -2920,6 +3010,8 @@ extern "C" {
         connected_audio_output: &str,
         audio_stream_connected: bool,
         transport_playing: bool,
+        transport_position_beats: f64,
+        loop_beats: f64,
         ui_scale: f64,
         show_asset_browser: bool,
         show_scale_browser: bool,
@@ -2967,6 +3059,22 @@ extern "C" {
         bottom_resize_end_y: f64,
         right_panel_width: f64,
         piano_roll_height: f64,
+        arrangement_seek_start_x: f64,
+        arrangement_seek_start_y: f64,
+        arrangement_seek_end_x: f64,
+        arrangement_seek_end_y: f64,
+        piano_seek_start_x: f64,
+        piano_seek_start_y: f64,
+        piano_seek_end_x: f64,
+        piano_seek_end_y: f64,
+        arrangement_loop_end_start_x: f64,
+        arrangement_loop_end_start_y: f64,
+        arrangement_loop_end_target_x: f64,
+        arrangement_loop_end_target_y: f64,
+        piano_loop_end_start_x: f64,
+        piano_loop_end_start_y: f64,
+        piano_loop_end_target_x: f64,
+        piano_loop_end_target_y: f64,
     );
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = load_browser_settings_text_js)]

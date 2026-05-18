@@ -115,6 +115,52 @@ impl SurfaceRects {
     }
 
     #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn arrangement_ruler_point_for_fraction(self, fraction: f32) -> UiPoint {
+        UiPoint::new(
+            self.arrangement_ruler.x + self.arrangement_ruler.width * fraction.clamp(0.0, 1.0),
+            self.arrangement_ruler.y + self.arrangement_ruler.height * 0.5,
+        )
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_ruler_point_for_fraction(self, fraction: f32) -> UiPoint {
+        UiPoint::new(
+            self.piano_ruler.x + self.piano_ruler.width * fraction.clamp(0.0, 1.0),
+            self.piano_ruler.y + self.piano_ruler.height * 0.5,
+        )
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn arrangement_loop_end_drag_points(
+        self,
+        target_beats: f32,
+    ) -> Option<(UiPoint, UiPoint)> {
+        let hit = loop_end_boundary_hit_rect(self.arrangement_ruler, self)?;
+        let end = UiPoint::new(
+            self.arrangement_ruler.x
+                + self.arrangement_ruler.width * (target_beats - self.view_start_beats)
+                    / self.view_beats.max(1.0),
+            self.arrangement_ruler.y + self.arrangement_ruler.height * 0.5,
+        );
+        Some((rect_center(hit), end))
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_loop_end_drag_points(
+        self,
+        target_beats: f32,
+    ) -> Option<(UiPoint, UiPoint)> {
+        let hit = loop_end_boundary_hit_rect(self.piano_ruler, self)?;
+        let end = UiPoint::new(
+            self.piano_ruler.x
+                + self.piano_ruler.width * (target_beats - self.view_start_beats)
+                    / self.view_beats.max(1.0),
+            self.piano_ruler.y + self.piano_ruler.height * 0.5,
+        );
+        Some((rect_center(hit), end))
+    }
+
+    #[cfg(feature = "web-app")]
     pub(in crate::ui) fn workspace_resize_point_for(
         self,
         app: &AppState,
@@ -170,6 +216,35 @@ impl SurfaceRects {
             return Some(WorkspaceResizeTarget::Right);
         }
         rect_contains_point(splitters.bottom, point).then_some(WorkspaceResizeTarget::Bottom)
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn loop_end_drag_action_at_point(
+        self,
+        point: UiPoint,
+    ) -> Option<&'static str> {
+        if loop_end_boundary_hit_rect(self.arrangement_ruler, self)
+            .is_some_and(|rect| rect_contains_point(rect, point))
+        {
+            return Some("transport.loop_end");
+        }
+        if loop_end_boundary_hit_rect(self.piano_ruler, self)
+            .is_some_and(|rect| rect_contains_point(rect, point))
+        {
+            return Some("piano.loop_end");
+        }
+        None
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn timeline_drag_action_at_point(
+        self,
+        point: UiPoint,
+    ) -> Option<&'static str> {
+        if rect_contains_point(self.arrangement_ruler, point) {
+            return Some("transport.seek");
+        }
+        rect_contains_point(self.piano_ruler, point).then_some("piano.seek")
     }
 
     #[cfg(feature = "web-app")]
