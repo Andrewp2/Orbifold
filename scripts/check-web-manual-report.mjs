@@ -313,6 +313,12 @@ export function validateManualDeviceReport(report) {
     );
   }
   requirePositiveNumber(browserFileEvidence.downloadSize, "manualBrowserFileFlows.downloadSize");
+  requireDownloadedProjectFileEvidence(
+    browserFileEvidence.downloadFile,
+    browserFileEvidence.downloadFileName,
+    browserFileEvidence.downloadSize,
+    "manualBrowserFileFlows.downloadFile"
+  );
   requireTruthy(
     browserFileEvidence.afterImport.project,
     "manualBrowserFileFlows.afterImport.project"
@@ -634,6 +640,19 @@ function requireBrowserFileFlowCheckpoint(state, label) {
   requireTruthy(state.locationHref, `${label}.locationHref`);
   requireTruthy(state.navigationType, `${label}.navigationType`);
   requirePositiveNumber(state.timeOrigin, `${label}.timeOrigin`);
+}
+
+function requireDownloadedProjectFileEvidence(evidence, expectedFileName, expectedBytes, label) {
+  requireObject(evidence, label);
+  requireEqual(evidence.fileName, expectedFileName, `${label}.fileName`);
+  requirePositiveNumber(evidence.bytes, `${label}.bytes`);
+  if (Number(evidence.bytes) < Number(expectedBytes)) {
+    throw new Error(`${label}.bytes should be at least the published download size`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(String(evidence.sha256 ?? ""))) {
+    throw new Error(`${label}.sha256 should be a SHA-256 hex digest`);
+  }
+  requireEqual(evidence.projectMarker, true, `${label}.projectMarker`);
 }
 
 function manualVisualStateShowsResize(initial, inspectedLarge) {

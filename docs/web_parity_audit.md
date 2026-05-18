@@ -178,9 +178,10 @@ these manual checks before treating web as parity-complete:
   input, MIDI recording evidence field, manual file/shortcut/piano-roll parity
   confirmation, and deployed artifact fingerprint passes validation. The
   validator also requires evidence fields for downloaded project bytes, imported
-  assets, loaded scale/key-map state, shortcut state, piano-roll geometry,
-  browser reload persistence after file flows, initial and resized/high-DPI
-  visual state, text-audit counters, verifier host, Chrome, real
+  project file size/hash/format, imported assets, loaded scale/key-map state,
+  shortcut state, piano-roll geometry, browser reload persistence after file
+  flows, initial and resized/high-DPI visual state, text-audit counters,
+  verifier host, Chrome, real
   click-coordinate, frame-state, and timestamp metadata, and rejects reports
   that recorded browser runtime exceptions, console
   errors/assertions, network load failures, or browser log errors, so unchecked

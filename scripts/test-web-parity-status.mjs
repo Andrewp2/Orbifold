@@ -137,6 +137,7 @@ function validManualReport() {
     evidence: {
       downloadFileName: "project.orbifold",
       downloadSize: 128,
+      downloadFile: downloadedProjectFile(),
       project: "orbifold_project=1\n",
       assetCount: 1,
       scaleDescription: "Browser 5-EDO",
@@ -365,6 +366,16 @@ function validVisualManifest(targetUrl, evidencePath) {
       capture("hidpi-1920x1080-dpr2", 1920, 1080, 2, evidencePath),
       capture("wide-3840x2160", 3840, 2160, 1, evidencePath),
     ],
+  };
+}
+
+function downloadedProjectFile() {
+  return {
+    fileName: "project.orbifold",
+    bytes: 128,
+    sha256: "a".repeat(64),
+    projectMarker: true,
+    noteCount: 0,
   };
 }
 

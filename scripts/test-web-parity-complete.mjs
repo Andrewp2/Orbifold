@@ -276,6 +276,7 @@ function validManualReport() {
     evidence: {
       downloadFileName: "project.orbifold",
       downloadSize: 128,
+      downloadFile: downloadedProjectFile(),
       project: "orbifold_project=1\n",
       assetCount: 1,
       scaleDescription: "Browser 5-EDO",
@@ -476,6 +477,16 @@ function visualState({ width, height, frameCount }) {
 
 function click(name, x, y, at) {
   return { name, point: { x, y }, at };
+}
+
+function downloadedProjectFile() {
+  return {
+    fileName: "project.orbifold",
+    bytes: 128,
+    sha256: "a".repeat(64),
+    projectMarker: true,
+    noteCount: 0,
+  };
 }
 
 function artifactFingerprint(rootUrl, generatedAt) {

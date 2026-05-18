@@ -154,6 +154,22 @@ assertRejects(
 
 assertRejects(
   withChange(report, (draft) => {
+    draft.checks.find((check) => check.name === "manualBrowserFileFlows").evidence.downloadFile.projectMarker =
+      false;
+  }),
+  "manualBrowserFileFlows.downloadFile.projectMarker expected true"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
+    draft.checks.find((check) => check.name === "manualBrowserFileFlows").evidence.downloadFile.sha256 =
+      "not-a-sha";
+  }),
+  "manualBrowserFileFlows.downloadFile.sha256 should be a SHA-256 hex digest"
+);
+
+assertRejects(
+  withChange(report, (draft) => {
     draft.checks.find((check) => check.name === "manualBrowserFileFlows").evidence.project =
       "not a project";
   }),
@@ -308,6 +324,7 @@ function validManualReport() {
     evidence: {
       downloadFileName: "project.orbifold",
       downloadSize: 128,
+      downloadFile: downloadedProjectFile(),
       project: "orbifold_project=1\n",
       assetCount: 1,
       scaleDescription: "Browser 5-EDO",
@@ -498,6 +515,16 @@ function validManualReport() {
         frameCount: 13,
       },
     },
+  };
+}
+
+function downloadedProjectFile() {
+  return {
+    fileName: "project.orbifold",
+    bytes: 128,
+    sha256: "a".repeat(64),
+    projectMarker: true,
+    noteCount: 0,
   };
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -26,6 +27,7 @@ let report = null;
 let chrome = null;
 let pageSession = null;
 let send = null;
+let downloadDir = "";
 
 if (isCliEntrypoint()) {
   try {
@@ -79,6 +81,8 @@ export async function runManualDeviceCli(args) {
   profile = fs.mkdtempSync(path.join(os.tmpdir(), "orbifold-web-manual-"));
   rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   report = createManualDeviceReport(options.url, chromePath);
+  downloadDir = path.join(profile, "downloads");
+  fs.mkdirSync(downloadDir, { recursive: true });
   stdout = "";
   stderr = "";
   let manualPassed = false;
@@ -109,6 +113,7 @@ export async function runManualDeviceCli(args) {
   try {
     const browserWsUrl = await waitForDevtoolsEndpoint();
     ({ send, pageSession } = await connectToPage(browserWsUrl));
+    await configureManualDownloads();
     await runManualDeviceCheck();
     manualPassed = true;
   } catch (error) {
@@ -307,6 +312,10 @@ async function runManualDeviceCheck() {
     "Use the browser UI with real file pickers: save/open a .orbifold project, load a Scala .scl scale, load a Lumatone .ltn key map, and import a supported WAV asset. Do not reload yet. Press Enter when finished."
   );
   report.states.afterBrowserFileFlowsBeforeReload = await evaluateProjectState();
+  const downloadEvidence = await waitForDownloadedProjectFile(
+    report.states.afterBrowserFileFlowsBeforeReload.downloadFileName,
+    report.states.afterBrowserFileFlowsBeforeReload.downloadSize
+  );
   await promptEnter(
     "Reload the browser page, wait for Orbifold to restore the project, scale, key map, and imported asset state, then press Enter."
   );
@@ -328,6 +337,7 @@ async function runManualDeviceCheck() {
     lumatoneLoaded: report.states.afterBrowserFileFlows.lumatoneLoaded,
     downloadFileName: report.states.afterBrowserFileFlowsBeforeReload.downloadFileName,
     downloadSize: report.states.afterBrowserFileFlowsBeforeReload.downloadSize,
+    downloadFile: downloadEvidence,
     before: pickBrowserFileFlowEvidence(report.states.beforeBrowserFileFlows),
     afterImport: pickBrowserFileFlowEvidence(report.states.afterBrowserFileFlowsBeforeReload),
     after: pickBrowserFileFlowEvidence(report.states.afterBrowserFileFlows),
@@ -575,6 +585,17 @@ function waitForDevtoolsEndpoint() {
       }
     }, 50);
   });
+}
+
+async function configureManualDownloads() {
+  await send("Browser.setDownloadBehavior", {
+    behavior: "allow",
+    downloadPath: downloadDir,
+  });
+  report.downloads = {
+    directory: downloadDir,
+    configured: true,
+  };
 }
 
 async function connectToPage(browserWsUrl) {
@@ -863,6 +884,32 @@ async function clickManualControl(name) {
     buttons: 0,
     clickCount: 1,
   }, pageSession);
+}
+
+async function waitForDownloadedProjectFile(fileName, minimumBytes) {
+  if (!fileName) {
+    throw new Error("browser project download did not publish a file name");
+  }
+  const safeName = path.basename(fileName);
+  const filePath = path.join(downloadDir, safeName);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (fs.existsSync(filePath)) {
+      const file = await fs.promises.readFile(filePath);
+      if (file.length >= Number(minimumBytes || 0)) {
+        const text = file.toString("utf8");
+        return {
+          fileName: safeName,
+          bytes: file.length,
+          sha256: crypto.createHash("sha256").update(file).digest("hex"),
+          projectMarker: text.includes("orbifold_project=1"),
+          noteCount: persistedNoteCount(text),
+        };
+      }
+    }
+    await delay(100);
+  }
+  throw new Error(`browser download did not create ${safeName} in ${downloadDir}`);
 }
 
 async function promptEnter(message) {
