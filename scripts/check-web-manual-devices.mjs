@@ -12,6 +12,8 @@ import { fetchWebArtifactFingerprint } from "./web-artifact-fingerprint.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const manualEvidenceRequirements =
+  "real Web Audio output, Web MIDI hardware, file-flow, shortcut, and piano-roll checks";
 
 let stdout = "";
 let stderr = "";
@@ -434,7 +436,7 @@ export function printManualDevicePreflight(preflight) {
   }
   if (preflight.passed) {
     console.log(
-      "preflight ok; rerun without --preflight in an interactive terminal with real audio output and Web MIDI hardware"
+      `preflight ok; rerun without --preflight in an interactive terminal with ${manualEvidenceRequirements}`
     );
   }
 }

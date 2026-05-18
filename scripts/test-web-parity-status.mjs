@@ -87,6 +87,8 @@ try {
     statusOutput,
     /scripts\/check-web-manual-devices\.mjs https:\/\/example\.invalid\/Other\/ --finalize/
   );
+  assert.match(statusOutput, /real Web Audio output, Web MIDI hardware/);
+  assert.match(statusOutput, /file-flow, shortcut, and piano-roll checks/);
   assert.match(statusOutput, /validate the manual report and final parity gate separately/);
 } finally {
   await rm(tempDir, { recursive: true, force: true });

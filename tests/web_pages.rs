@@ -375,6 +375,8 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "browserFileFlows",
         "shortcutParity",
         "pianoRollParity",
+        "real Web Audio output, Web MIDI hardware",
+        "file-flow, shortcut, and piano-roll checks",
         "web-manual-devices-",
         "reports",
     ] {
@@ -393,6 +395,9 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "--out requires a value",
         "manualDeviceFinalizerCommands",
         "manualDeviceNextStepLines",
+        "printManualDevicePreflight",
+        "real Web Audio output, Web MIDI hardware",
+        "file-flow, shortcut, and piano-roll checks",
         "Unknown argument: --bogus",
         "manual web device runner behavior ok",
     ] {
@@ -695,6 +700,8 @@ fn web_parity_status_script_reports_missing_evidence() {
         "next required evidence:",
         "scripts/check-web-manual-devices.mjs",
         "--finalize",
+        "real Web Audio output, Web MIDI hardware",
+        "file-flow, shortcut, and piano-roll checks",
         "validate the manual report and final parity gate separately",
         "scripts/check-web-parity-gate.mjs",
     ] {

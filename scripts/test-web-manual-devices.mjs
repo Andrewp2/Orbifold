@@ -7,6 +7,7 @@ import {
   manualDeviceNextStepLines,
   parseManualDeviceArgs,
   persistedNoteCount,
+  printManualDevicePreflight,
 } from "./check-web-manual-devices.mjs";
 
 assert.deepEqual(parseManualDeviceArgs(["https://example.invalid/Orbifold/"]), {
@@ -97,4 +98,34 @@ assert.match(
   /'.*report with space\.json'/
 );
 
+const preflightOutput = captureConsole(() =>
+  printManualDevicePreflight({
+    passed: true,
+    url: "https://example.invalid/Orbifold/",
+    checks: [
+      {
+        name: "chrome",
+        passed: true,
+        detail: "/usr/bin/google-chrome",
+      },
+    ],
+  })
+);
+assert.match(preflightOutput, /real Web Audio output, Web MIDI hardware/);
+assert.match(preflightOutput, /file-flow, shortcut, and piano-roll checks/);
+
 console.log("manual web device runner behavior ok");
+
+function captureConsole(callback) {
+  const originalLog = console.log;
+  let output = "";
+  console.log = (...args) => {
+    output += `${args.join(" ")}\n`;
+  };
+  try {
+    callback();
+  } finally {
+    console.log = originalLog;
+  }
+  return output;
+}

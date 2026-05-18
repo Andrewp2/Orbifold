@@ -9,6 +9,9 @@ import {
 } from "./check-web-parity-complete.mjs";
 import { normalizeWebRootHref } from "./web-artifact-fingerprint.mjs";
 
+const manualEvidenceRequirements =
+  "real Web Audio output, Web MIDI hardware, file-flow, shortcut, and piano-roll checks";
+
 if (isCliEntrypoint()) {
   try {
     const options = parseWebParityStatusArgs(process.argv.slice(2));
@@ -115,7 +118,7 @@ export function printWebParityStatus(status) {
     console.log("next required evidence:");
     if (!status.manualReport.ok) {
       console.log(
-        `- run ${manualDeviceCommand(status, { finalize: true })} with real Web Audio and Web MIDI hardware`
+        `- run ${manualDeviceCommand(status, { finalize: true })} with ${manualEvidenceRequirements}`
       );
       console.log(
         "- or run without --finalize, then validate the manual report and final parity gate separately"
