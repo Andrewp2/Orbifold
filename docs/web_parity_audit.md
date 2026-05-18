@@ -123,8 +123,10 @@ then writes visual artifacts and a manifest under `screenshots/web/`. It writes
 PNG screenshots when Chrome can capture the WebGPU surface; when headless Chrome
 returns transparent screenshots, it falls back to an SVG paint snapshot exported
 by the live wasm runtime for that frame. The manifest records each browser
-screenshot attempt and why it was accepted or rejected. Inspect the artifacts
-yourself; this is visual evidence, not a substitute for a human layout pass.
+screenshot attempt and why it was accepted or rejected. The capture fails if any
+viewport records a JavaScript exception, console error/assertion, network load
+failure, or browser log error. Inspect the artifacts yourself; this is visual
+evidence, not a substitute for a human layout pass.
 The Pages workflow uploads visual artifacts for both the local build artifact
 and the deployed Pages URL so review evidence survives CI.
 

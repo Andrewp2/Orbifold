@@ -70,6 +70,7 @@ chrome.stderr.on("data", (chunk) => {
 try {
   const browserWsUrl = await waitForDevtoolsEndpoint();
   const result = await captureVisuals(browserWsUrl);
+  result.failures = visualCaptureFailures(result.events);
   const manifestPath = path.join(runDir, "manifest.json");
   fs.writeFileSync(manifestPath, `${JSON.stringify(result, null, 2)}\n`);
   console.log(`Orbifold web visual captures wrote ${runDir}`);
@@ -77,6 +78,11 @@ try {
     console.log(`- ${capture.label}: ${capture.screenshot ?? capture.snapshot}`);
   }
   console.log(`- manifest: ${manifestPath}`);
+  if (result.failures.length > 0) {
+    throw new Error(
+      `browser errors were recorded during visual capture: ${result.failures.join("; ")}`
+    );
+  }
 } catch (error) {
   console.error(`Orbifold web visual capture failed: ${error.message ?? error}`);
   process.exitCode = 1;
@@ -469,6 +475,25 @@ function summarizeEvent(message, requestUrls) {
     level: params.entry?.level ?? "",
     text: params.entry?.text ?? "",
   };
+}
+
+function visualCaptureFailures(events) {
+  const failures = [];
+  for (const event of events) {
+    if (event.method === "Runtime.exceptionThrown") {
+      failures.push(`exception: ${event.text || event.description || "unknown"}`);
+    } else if (
+      event.method === "Runtime.consoleAPICalled" &&
+      ["error", "assert"].includes(event.type)
+    ) {
+      failures.push(`console ${event.type}: ${event.text}`);
+    } else if (event.method === "Network.loadingFailed") {
+      failures.push(`network load failed: ${event.url || event.errorText || "unknown"}`);
+    } else if (event.method === "Log.entryAdded" && event.level === "error") {
+      failures.push(`browser log error: ${event.text}`);
+    }
+  }
+  return failures;
 }
 
 function delay(ms) {
