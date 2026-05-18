@@ -60,18 +60,68 @@ fn pages_workflow_builds_and_deploys_dist() {
         "node-version: 22",
         "python3 -m http.server 4173 --directory dist",
         "./scripts/check-web-dist.mjs dist",
+        "./scripts/check-web-layout.mjs http://127.0.0.1:4173/",
         "./scripts/check-web-smoke.mjs http://127.0.0.1:4173/",
         "for _ in {1..3}; do",
         "actions/configure-pages@v5",
         "actions/upload-pages-artifact@v4",
         "actions/deploy-pages@v4",
         "./scripts/check-web-live.mjs \"${{ steps.deployment.outputs.page_url }}\"",
+        "./scripts/check-web-layout.mjs \"${{ steps.deployment.outputs.page_url }}\"",
         "./scripts/check-web-smoke.mjs \"${{ steps.deployment.outputs.page_url }}\"",
         "path: dist",
     ] {
         assert!(
             workflow.contains(required),
             ".github/workflows/pages.yml should mention {required}"
+        );
+    }
+}
+
+#[test]
+fn web_layout_check_script_verifies_multi_viewport_canvas_geometry() {
+    let script = include_str!("../scripts/check-web-layout.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+
+    for required in [
+        "usage: scripts/check-web-layout.mjs <url>",
+        "--enable-unsafe-webgpu",
+        "--ignore-gpu-blocklist",
+        "--disable-dev-shm-usage",
+        "compact-1200x760",
+        "desktop-1600x1000",
+        "hidpi-1920x1080-dpr2",
+        "wide-3840x2160",
+        "orbifold_layout",
+        "runtime-ready",
+        "runtime-failed",
+        "canvasClientWidth",
+        "canvasClientHeight",
+        "canvasWidth",
+        "canvasHeight",
+        "canvasRectWidth",
+        "canvasRectHeight",
+        "documentScrollWidth",
+        "documentScrollHeight",
+        "bodyScrollWidth",
+        "bodyScrollHeight",
+        "orbifoldPianoGridWidth",
+        "orbifoldPianoGridHeight",
+        "orbifoldPianoRollHeight",
+        "orbifoldRightPanelWidth",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-layout.mjs should verify browser layout geometry: {required}"
+        );
+    }
+
+    for docs in [readme, audit, checklist] {
+        assert!(
+            docs.contains("./scripts/check-web-layout.mjs"),
+            "web layout check workflow should be documented"
         );
     }
 }

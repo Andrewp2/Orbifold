@@ -45,8 +45,10 @@ cargo clippy --all-targets -- -D warnings
 ./scripts/build-web.sh dist
 ./scripts/check-web-dist.mjs dist
 python3 -m http.server 4173 --directory dist
+./scripts/check-web-layout.mjs http://127.0.0.1:4173/
 ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ```
@@ -92,6 +94,14 @@ headless smoke against the deployed URL after deployment, which verifies the
 published wasm runtime path in CI. Manual browser/device checks are still needed
 for audio output, real Web MIDI hardware, and visual inspection.
 
+The web layout check launches headless Chrome at compact, desktop, high-DPI, and
+4K viewports. It verifies that the wasm runtime replaces the fallback shell, the
+canvas client and backing-store sizes fill the viewport at the expected device
+pixel ratio, the document does not overflow/scroll, and key editor geometry such
+as the piano grid, piano roll, and right panel stays usable. This catches
+automatable layout regressions like the UI rendering only in the top-left
+quarter of the window, but it is still not a substitute for human visual review.
+
 The visual capture script launches headless Chrome with WebGPU enabled, waits
 for the live runtime to render at compact, desktop, high-DPI, and 4K viewports,
 then writes PNGs and a manifest under `screenshots/web/`. It catches fallback
@@ -111,6 +121,9 @@ these manual checks before treating web as parity-complete:
   wasm UI and current favicon/assets.
 - Run `./scripts/check-web-smoke.mjs` against the deployed URL when you need
   local confirmation of the same runtime gate the Pages workflow uses.
+- Run `./scripts/check-web-layout.mjs` against the deployed URL to confirm
+  multi-viewport canvas coverage, high-DPI backing size, no page overflow, and
+  non-collapsed editor geometry.
 - Run the browser UI on a high-DPI or 4K display and inspect layout scale, text
   overlap, piano-roll labels, panel resize handles, and canvas coverage.
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
@@ -149,5 +162,8 @@ themselves:
   confirming audible output in a real browser session.
 - The Pages workflow file exists, without a successful deployed Pages run.
 - `scripts/check-web-live.mjs` passes without a manual browser runtime check.
+- `scripts/check-web-layout.mjs` passes without visual inspection; it checks
+  measurable geometry, not whether the rendered DAW surface is aesthetically or
+  ergonomically correct.
 
 Treat these as partial evidence and keep the open gap visible in the handoff.

@@ -264,6 +264,9 @@ musically usable.
 - Run `./scripts/check-web-live.mjs` against the deployed Pages URL and confirm
   the live artifact has the expected wasm loader, wasm binary, icons, and
   relative asset references.
+- Run `./scripts/check-web-layout.mjs` against the deployed Pages URL and
+  confirm compact, desktop, high-DPI, and 4K browser layouts have full canvas
+  coverage, no page overflow, and usable editor geometry.
 - Run `./scripts/check-web-smoke.mjs` against the deployed Pages URL or confirm
   the Pages workflow's deployed smoke step passed.
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and

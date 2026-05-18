@@ -66,10 +66,16 @@ Orbifold has a browser build for GitHub Pages:
 ./scripts/build-web.sh dist
 ./scripts/check-web-dist.mjs dist
 python3 -m http.server 4173 --directory dist
+./scripts/check-web-layout.mjs http://127.0.0.1:4173/
 ./scripts/check-web-smoke.mjs http://127.0.0.1:4173/
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ```
+
+The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
+viewports and verifies canvas coverage, backing-store size, no document
+overflow, and non-collapsed editor geometry.
 
 The smoke check launches headless Chrome with WebGPU enabled and fails on
 browser exceptions, console errors, failed asset loads, missing WebGPU, a
@@ -271,9 +277,10 @@ The GitHub Pages shell lives in `web/index.html`. The wasm entry point is
 `pkg/` output plus the favicon assets into `dist/`. The build also writes
 `dist/.nojekyll`, and `scripts/check-web-dist.mjs` verifies the Pages artifact
 contains the wasm loader, wasm binary, icons, relative asset references, and
-runtime-ready/fallback hooks. After deployment,
-`scripts/check-web-live.mjs` performs the same artifact-shape check against the
-published Pages URL.
+runtime-ready/fallback hooks. `scripts/check-web-layout.mjs` verifies the live
+canvas and editor geometry across compact, desktop, high-DPI, and 4K browser
+viewports. After deployment, `scripts/check-web-live.mjs` performs the same
+artifact-shape check against the published Pages URL.
 
 Release notes and release checks live in `CHANGELOG.md` and
 `docs/release_checklist.md`. The release workflow lives in
