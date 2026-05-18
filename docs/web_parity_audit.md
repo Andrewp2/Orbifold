@@ -147,15 +147,18 @@ these manual checks before treating web as parity-complete:
   or inspect the deployed visual artifact uploaded by the Pages workflow.
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
-  `reports/web-manual-devices-*.json` artifact with the release evidence.
+  `reports/web-manual-devices-*.json` artifact with the release evidence. The
+  report records a hash fingerprint for the deployed HTML, wasm loader, wasm
+  binary, and icon files at the time of manual testing.
 - Run `./scripts/check-web-manual-report.mjs reports/` and keep the validator
   output with the manual report. A report only counts when every required check,
   user confirmation, real browser click, audible Web Audio sample, real MIDI
-  input, and MIDI recording evidence field passes validation.
+  input, MIDI recording evidence field, and deployed artifact fingerprint passes
+  validation.
 - Run `./scripts/check-web-parity-gate.mjs` against the deployed Pages URL with
   the validated manual report. This wraps the deployed live/layout/smoke checks,
-  visual capture, and manual report validation into one final pass/fail report
-  under `reports/`.
+  visual capture, manual report validation, and live-vs-manual artifact
+  fingerprint comparison into one final pass/fail report under `reports/`.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
@@ -196,6 +199,8 @@ themselves:
   real browser/audio/MIDI session.
 - A manual-device report exists, without a passing
   `./scripts/check-web-manual-report.mjs` validation run.
+- A manual-device report validates but was generated against an older deployed
+  artifact than the one currently served by Pages.
 - Individual deployed or manual checks pass, without a passing
   `./scripts/check-web-parity-gate.mjs` run that ties the evidence together.
 - The Pages workflow file exists, without a successful deployed Pages run.

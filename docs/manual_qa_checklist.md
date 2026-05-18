@@ -281,12 +281,15 @@ musically usable.
   Pages workflow.
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
-  `reports/web-manual-devices-*.json` artifact with the release evidence.
+  `reports/web-manual-devices-*.json` artifact with the release evidence; it
+  includes the deployed artifact fingerprint observed during the manual run.
 - Run `./scripts/check-web-manual-report.mjs reports/` against the generated
-  report and confirm it accepts the real browser/audio/MIDI evidence.
+  report and confirm it accepts the real browser/audio/MIDI evidence and
+  artifact fingerprint.
 - Run `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
   and keep the generated `reports/web-parity-gate-*.json` with the release
-  evidence.
+  evidence. The gate rejects manual reports whose fingerprint no longer matches
+  the live Pages artifact.
 - Confirm browser `Open` refuses dirty replacement on the first click/shortcut
   and opens the picker only after the second confirmed action.
 - Confirm browser `Save`/`Save As` downloads `.orbifold` project text and the

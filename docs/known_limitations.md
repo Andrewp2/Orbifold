@@ -89,7 +89,9 @@ testers can separate expected unfinished behavior from bugs worth reporting.
 - Complete web parity requires the manual validation in
   `docs/web_parity_audit.md`, including real browser/device checks and the
   deployed GitHub Pages site. The generated manual report must also pass
-  `./scripts/check-web-manual-report.mjs reports/`.
+  `./scripts/check-web-manual-report.mjs reports/`, and the final parity gate
+  must confirm that report's artifact fingerprint still matches the live Pages
+  artifact.
 - WebGPU support is required for the live wasm UI. Browsers without WebGPU show
   the static fallback shell.
 - Browser settings and the latest project session persist in `localStorage`.

@@ -85,11 +85,13 @@ web evidence that CI cannot provide.
 When the manual browser/device pass writes `reports/web-manual-devices-*.json`,
 run `./scripts/check-web-manual-report.mjs reports/` so the release evidence is
 checked for passed Web Audio, Web MIDI, real-click, and user-confirmation
-fields instead of only preserving an unchecked JSON file.
+fields, plus the deployed artifact fingerprint, instead of only preserving an
+unchecked JSON file.
 Then run
 `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
-to tie the deployed live/layout/smoke checks, visual capture, and manual report
-validation into one final pass/fail artifact.
+to tie the deployed live/layout/smoke checks, visual capture, manual report
+validation, and live-vs-manual artifact fingerprint comparison into one final
+pass/fail artifact.
 After deployment, run `./scripts/check-web-live.mjs` against the Pages URL to
 verify the published site is serving the expected wasm loader, wasm binary,
 icons, relative paths, and runtime hooks. The Pages workflow also runs

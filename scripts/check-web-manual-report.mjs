@@ -3,6 +3,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  normalizeWebRootHref,
+  requireArtifactFingerprint,
+} from "./web-artifact-fingerprint.mjs";
 
 const requiredChecks = [
   "browserRuntimeReady",
@@ -54,6 +58,12 @@ export function validateManualDeviceReport(report) {
   requireObject(report.userConfirmations, "userConfirmations");
   requireObject(report.chrome, "chrome");
   requireTruthy(report.chrome.version, "chrome.version");
+  requireArtifactFingerprint(report.artifact, "artifact");
+  requireEqual(
+    normalizeWebRootHref(report.artifact.rootUrl),
+    normalizeWebRootHref(report.targetUrl),
+    "artifact.rootUrl"
+  );
 
   const checksByName = new Map(report.checks.map((check) => [check.name, check]));
   const requirePassedCheck = (name) => {

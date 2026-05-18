@@ -112,12 +112,14 @@ Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
 automated evidence above from manual checks that require a real browser,
 deployed Pages site, audio output, and Web MIDI hardware. The manual-device
 script opens a real Chrome session, prompts for audible Web Audio and hardware
-Web MIDI confirmation, and writes a JSON report under `reports/`. Validate that
-report with `./scripts/check-web-manual-report.mjs reports/` before treating the
-manual device pass as release evidence.
+Web MIDI confirmation, records the deployed artifact fingerprint, and writes a
+JSON report under `reports/`. Validate that report with
+`./scripts/check-web-manual-report.mjs reports/` before treating the manual
+device pass as release evidence.
 After the manual report exists, `./scripts/check-web-parity-gate.mjs` runs the
 deployed live/layout/smoke checks, captures deployed visuals, validates the
-manual report, and writes a final gate report under `reports/`.
+manual report, rejects stale reports whose artifact fingerprint no longer
+matches the live Pages site, and writes a final gate report under `reports/`.
 
 ## Music Workflow
 

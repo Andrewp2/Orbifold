@@ -7,6 +7,7 @@ import process from "node:process";
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { validateManualDeviceReport } from "./check-web-manual-report.mjs";
+import { fetchWebArtifactFingerprint } from "./web-artifact-fingerprint.mjs";
 
 const options = parseArgs(process.argv.slice(2));
 if (!options.url) {
@@ -109,6 +110,7 @@ async function runManualDeviceCheck() {
   report.chrome.version = browserVersion.product;
   report.chrome.userAgent = browserVersion.userAgent;
   report.chrome.protocolVersion = browserVersion.protocolVersion;
+  report.artifact = await fetchWebArtifactFingerprint(options.url);
 
   await send("Page.navigate", { url: options.url }, pageSession);
   await waitForOrbifoldReady();

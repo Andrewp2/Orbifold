@@ -6,6 +6,10 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolveReportPath } from "./check-web-manual-report.mjs";
+import {
+  compareWebArtifactFingerprints,
+  fetchWebArtifactFingerprint,
+} from "./web-artifact-fingerprint.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -29,33 +33,22 @@ const gateReport = {
 };
 
 try {
-  await runStep("deployedArtifact", ["check-web-live.mjs", options.url]);
-  await runStep("deployedLayout", ["check-web-layout.mjs", options.url]);
-  await runStep("deployedSmoke", ["check-web-smoke.mjs", options.url]);
-  if (!options.skipVisualCapture) {
-    await runStep("deployedVisualCapture", [
-      "capture-web-visuals.mjs",
-      options.url,
-      "--out",
-      options.visualOut,
-    ]);
-  } else {
-    gateReport.steps.push({
-      name: "deployedVisualCapture",
-      command: ["skipped"],
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-      exitCode: 1,
-      signal: null,
-      stdoutTail: "",
-      stderrTail: "visual capture skipped; this is not complete web parity evidence",
-    });
+  if (options.skipVisualCapture) {
+    recordSkippedVisualCapture();
+    throw new Error("visual capture was skipped; rerun without --skip-visual-capture for parity");
   }
   await runStep("manualDeviceReport", ["check-web-manual-report.mjs", options.report]);
   await verifyManualReportTarget(options.report, options.url);
-  if (options.skipVisualCapture) {
-    throw new Error("visual capture was skipped; rerun without --skip-visual-capture for parity");
-  }
+  await verifyManualReportArtifact(options.report, options.url);
+  await runStep("deployedArtifact", ["check-web-live.mjs", options.url]);
+  await runStep("deployedLayout", ["check-web-layout.mjs", options.url]);
+  await runStep("deployedSmoke", ["check-web-smoke.mjs", options.url]);
+  await runStep("deployedVisualCapture", [
+    "capture-web-visuals.mjs",
+    options.url,
+    "--out",
+    options.visualOut,
+  ]);
   gateReport.passed = true;
   console.log("\nOrbifold web parity gate passed.");
 } catch (error) {
@@ -146,6 +139,19 @@ function runStep(name, scriptAndArgs) {
   });
 }
 
+function recordSkippedVisualCapture() {
+  gateReport.steps.push({
+    name: "deployedVisualCapture",
+    command: ["skipped"],
+    startedAt: new Date().toISOString(),
+    endedAt: new Date().toISOString(),
+    exitCode: 1,
+    signal: null,
+    stdoutTail: "",
+    stderrTail: "visual capture skipped; this is not complete web parity evidence",
+  });
+}
+
 function writeGateReport(report) {
   const outDir = "reports";
   fs.mkdirSync(outDir, { recursive: true });
@@ -174,6 +180,33 @@ async function verifyManualReportTarget(reportTarget, expectedUrl) {
   gateReport.manualReportPath = reportPath;
   if (actual !== expected) {
     throw new Error(`manual report target ${actual} does not match gate target ${expected}`);
+  }
+}
+
+async function verifyManualReportArtifact(reportTarget, expectedUrl) {
+  const reportPath = await resolveReportPath(reportTarget);
+  const report = JSON.parse(await fs.promises.readFile(reportPath, "utf8"));
+  const actual = await fetchWebArtifactFingerprint(expectedUrl);
+  const differences = compareWebArtifactFingerprints(actual, report.artifact);
+  const step = {
+    name: "manualReportArtifact",
+    command: ["fetch", expectedUrl],
+    startedAt: new Date().toISOString(),
+    endedAt: new Date().toISOString(),
+    exitCode: differences.length === 0 ? 0 : 1,
+    signal: null,
+    stdoutTail:
+      differences.length === 0
+        ? `manual report artifact matches live ${normalizeUrl(expectedUrl)}`
+        : "",
+    stderrTail: differences.slice(0, 10).join("\n"),
+  };
+  gateReport.steps.push(step);
+  gateReport.liveArtifact = actual;
+  if (differences.length > 0) {
+    throw new Error(
+      `manual report artifact does not match the current deployed artifact: ${differences[0]}`
+    );
   }
 }
 

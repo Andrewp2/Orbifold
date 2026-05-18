@@ -254,6 +254,8 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "orbifold.web_manual_device_parity.v1",
         "This manual device check requires an interactive terminal",
         "validateManualDeviceReport",
+        "fetchWebArtifactFingerprint",
+        "report.artifact",
         "report evidence validated",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
@@ -313,6 +315,10 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "audioNonzero",
         "midiInputCount",
         "connectedMidiInput",
+        "requireArtifactFingerprint",
+        "normalizeWebRootHref",
+        "artifact.rootUrl",
+        "artifact",
         "beforeNoteCount",
         "afterNoteCount",
         "manualRealMidiInput evidence should show a changed MIDI status or note",
@@ -361,6 +367,9 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         "check-web-smoke.mjs",
         "capture-web-visuals.mjs",
         "check-web-manual-report.mjs",
+        "web-artifact-fingerprint.mjs",
+        "fetchWebArtifactFingerprint",
+        "compareWebArtifactFingerprints",
         "web-parity-gate-",
         "--report",
         "--visual-out",
@@ -368,7 +377,9 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         "visual capture was skipped; rerun without --skip-visual-capture for parity",
         "manualDeviceReport",
         "manualReportTarget",
+        "manualReportArtifact",
         "manual report target",
+        "manual report artifact matches live",
         "deployedVisualCapture",
         "Orbifold web parity gate passed",
     ] {
@@ -388,6 +399,32 @@ fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
         assert!(
             docs.contains("./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/"),
             "web parity gate workflow should be documented"
+        );
+    }
+}
+
+#[test]
+fn web_artifact_fingerprint_script_hashes_deployed_files() {
+    let script = include_str!("../scripts/web-artifact-fingerprint.mjs");
+
+    for required in [
+        "orbifold.web_artifact_fingerprint.v1",
+        "createHash",
+        "sha256",
+        "cache: \"no-store\"",
+        "redirect: \"follow\"",
+        "pkg/orbifold_web.js",
+        "pkg/orbifold_web_bg.wasm",
+        "favicon.ico",
+        "orbifold_icon.png",
+        "fetchWebArtifactFingerprint",
+        "compareWebArtifactFingerprints",
+        "requireArtifactFingerprint",
+        "normalizeWebRootHref",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/web-artifact-fingerprint.mjs should fingerprint deployed web artifacts: {required}"
         );
     }
 }
