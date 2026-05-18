@@ -114,8 +114,12 @@ export function printWebParityStatus(status) {
     console.log("");
     console.log("next required evidence:");
     if (!status.manualReport.ok) {
-      console.log(`- run ${manualDeviceCommand(status)} with real Web Audio and Web MIDI hardware`);
-      console.log("- then run scripts/check-web-manual-report.mjs reports/");
+      console.log(
+        `- run ${manualDeviceCommand(status, { finalize: true })} with real Web Audio and Web MIDI hardware`
+      );
+      console.log(
+        "- or run without --finalize, then validate the manual report and final parity gate separately"
+      );
       return;
     }
     console.log(`- run ${parityGateCommand(status)}`);
@@ -135,11 +139,12 @@ function formatManualReport(item) {
   return `${item.path} (${item.checkCount} checks, target ${item.targetUrl}, ${item.generatedAt})`;
 }
 
-function manualDeviceCommand(status) {
+function manualDeviceCommand(status, options = {}) {
+  const suffix = options.finalize ? " --finalize" : "";
   if (status.expectedUrl) {
-    return `scripts/check-web-manual-devices.mjs ${status.expectedUrl}`;
+    return `scripts/check-web-manual-devices.mjs ${status.expectedUrl}${suffix}`;
   }
-  return "scripts/check-web-manual-devices.mjs against the deployed Pages URL";
+  return `scripts/check-web-manual-devices.mjs against the deployed Pages URL${suffix}`;
 }
 
 function parityGateCommand(status) {

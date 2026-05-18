@@ -669,6 +669,8 @@ fn web_parity_status_script_reports_missing_evidence() {
         "completion gate report",
         "next required evidence:",
         "scripts/check-web-manual-devices.mjs",
+        "--finalize",
+        "validate the manual report and final parity gate separately",
         "scripts/check-web-parity-gate.mjs",
     ] {
         assert!(

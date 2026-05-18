@@ -85,8 +85,9 @@ try {
   const statusOutput = captureConsole(() => printWebParityStatus(wrongTargetStatus));
   assert.match(
     statusOutput,
-    /scripts\/check-web-manual-devices\.mjs https:\/\/example\.invalid\/Other\//
+    /scripts\/check-web-manual-devices\.mjs https:\/\/example\.invalid\/Other\/ --finalize/
   );
+  assert.match(statusOutput, /validate the manual report and final parity gate separately/);
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }
