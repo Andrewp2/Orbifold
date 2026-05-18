@@ -71,6 +71,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ```
 
 The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
@@ -106,7 +107,9 @@ The Pages workflow captures and uploads the same visual artifact set for both
 the local build artifact and the deployed Pages URL.
 Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
 automated evidence above from manual checks that require a real browser,
-deployed Pages site, audio output, and Web MIDI hardware.
+deployed Pages site, audio output, and Web MIDI hardware. The manual-device
+script opens a real Chrome session, prompts for audible Web Audio and hardware
+Web MIDI confirmation, and writes a JSON report under `reports/`.
 
 ## Music Workflow
 

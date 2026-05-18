@@ -51,6 +51,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ```
 
 The headless smoke currently covers:
@@ -141,6 +142,9 @@ these manual checks before treating web as parity-complete:
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
   inspect the compact, desktop, high-DPI, and 4K PNG or SVG artifacts it writes,
   or inspect the deployed visual artifact uploaded by the Pages workflow.
+- Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
+  with a real audio output and Web MIDI device attached. Keep the generated
+  `reports/web-manual-devices-*.json` artifact with the release evidence.
 - Use a real browser file picker to open/save projects, scales, key maps, and
   assets, then reload and confirm the same state restores.
 - Grant Web MIDI permission in a browser that supports Web MIDI, connect a real
@@ -177,6 +181,8 @@ themselves:
 - Web MIDI passes only with the deterministic mock, without a real device.
 - Web Audio reports an attached processor and nonzero generated samples, without
   confirming audible output in a real browser session.
+- `scripts/check-web-manual-devices.mjs` exists, without a passing report from a
+  real browser/audio/MIDI session.
 - The Pages workflow file exists, without a successful deployed Pages run.
 - `scripts/check-web-live.mjs` passes without a manual browser runtime check.
 - `scripts/check-web-layout.mjs` passes without visual inspection; it checks

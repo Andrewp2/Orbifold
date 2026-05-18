@@ -241,6 +241,45 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
 }
 
 #[test]
+fn web_manual_device_script_records_real_browser_device_evidence() {
+    let script = include_str!("../scripts/check-web-manual-devices.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+
+    for required in [
+        "usage: scripts/check-web-manual-devices.mjs <url>",
+        "orbifold.web_manual_device_parity.v1",
+        "This manual device check requires an interactive terminal",
+        "--enable-unsafe-webgpu",
+        "--ignore-gpu-blocklist",
+        "window.orbifoldDispatchAction",
+        "manualVisualInspection",
+        "webAudioOutputsDiscovered",
+        "webAudioConnectedState",
+        "manualAudibleWebAudio",
+        "webMidiInputsDiscovered",
+        "webMidiConnectedState",
+        "manualRealMidiInput",
+        "manualRealMidiRecording",
+        "web-manual-devices-",
+        "reports",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-manual-devices.mjs should capture manual device evidence: {required}"
+        );
+    }
+
+    for docs in [readme, audit, checklist] {
+        assert!(
+            docs.contains("./scripts/check-web-manual-devices.mjs"),
+            "manual web device parity workflow should be documented"
+        );
+    }
+}
+
+#[test]
 fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-live.mjs");
 
