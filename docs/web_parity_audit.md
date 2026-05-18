@@ -69,8 +69,8 @@ The headless smoke currently covers:
   workspace splitter drags,
 - shared clip edit actions for copy, paste, duplicate, delete, snap toggle, and
   quantizing an off-grid selected note,
-- browser project save/download and project open through real browser file
-  inputs,
+- browser project save/download, keyboard-driven Save As download, and project
+  open through real browser file inputs,
 - dirty-project open confirmation before creating a browser file input,
 - browser tab title updates for dirty and loaded project states,
 - Scala, Lumatone, and WAV asset imports through real browser file inputs, plus

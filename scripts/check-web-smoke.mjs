@@ -1036,6 +1036,7 @@ async function verifyTimelineAndLoopGestures(send, sessionId) {
 
 async function verifyBrowserFileFlows(send, sessionId, artifactsDir) {
   const downloadedProject = await verifyBrowserProjectDownload(send, sessionId, artifactsDir);
+  await verifyBrowserProjectSaveAsShortcut(send, sessionId, artifactsDir);
 
   const openProjectPath = path.join(artifactsDir, "browser_open_test.orbifold");
   fs.writeFileSync(openProjectPath, projectWithFirstNoteOnly(downloadedProject), "utf8");
@@ -1375,6 +1376,7 @@ async function verifyBrowserProjectDownload(send, sessionId, artifactsDir) {
     send,
     sessionId,
     (state) =>
+      state.lastAction === "file.save" &&
       state.downloadFileName.endsWith(".orbifold") &&
       state.downloadSize > 0 &&
       state.downloadText.includes("orbifold_project=1") &&
@@ -1383,6 +1385,39 @@ async function verifyBrowserProjectDownload(send, sessionId, artifactsDir) {
   );
   await waitForDownloadedFile(artifactsDir, state.downloadFileName, state.downloadSize);
   return state.downloadText;
+}
+
+async function verifyBrowserProjectSaveAsShortcut(send, sessionId, artifactsDir) {
+  const before = await evaluateProjectState(send, sessionId);
+  removeDownloadedFile(artifactsDir, before.downloadFileName);
+
+  await pressKey(send, sessionId, {
+    key: "s",
+    code: "KeyS",
+    windowsVirtualKeyCode: 83,
+    modifiers: 10,
+  });
+
+  const state = await waitForProjectState(
+    send,
+    sessionId,
+    (state) =>
+      state.lastAction === "file.save_as" &&
+      state.downloadFileName.endsWith(".orbifold") &&
+      state.downloadSize > 0 &&
+      state.downloadText.includes("orbifold_project=1") &&
+      persistedNoteCount(state.downloadText) >= 3,
+    "browser Ctrl+Shift+S shortcut did not publish a downloadable project file"
+  );
+  await waitForDownloadedFile(artifactsDir, state.downloadFileName, state.downloadSize);
+}
+
+function removeDownloadedFile(downloadDir, fileName) {
+  if (!fileName) {
+    return;
+  }
+  const filePath = path.join(downloadDir, path.basename(fileName));
+  fs.rmSync(filePath, { force: true });
 }
 
 async function chooseFileForBrowserAction(send, sessionId, action, filePath) {
