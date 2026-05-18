@@ -329,6 +329,10 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
 
     for required in [
         "usage: scripts/check-web-manual-devices.mjs <url>",
+        "--preflight",
+        "manual web device preflight:",
+        "runManualDevicePreflight",
+        "printManualDevicePreflight",
         "orbifold.web_manual_device_parity.v1",
         "This manual device check requires an interactive terminal",
         "validateManualDeviceReport",
@@ -373,6 +377,7 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "parseManualDeviceArgs",
         "createManualDeviceReport",
         "persistedNoteCount",
+        "preflight: true",
         "Unknown argument: --bogus",
         "manual web device runner behavior ok",
     ] {

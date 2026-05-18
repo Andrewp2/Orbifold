@@ -11,6 +11,7 @@ assert.deepEqual(parseManualDeviceArgs(["https://example.invalid/Orbifold/"]), {
   url: "https://example.invalid/Orbifold/",
   outDir: "reports",
   keepOpen: false,
+  preflight: false,
 });
 
 assert.deepEqual(
@@ -19,11 +20,13 @@ assert.deepEqual(
     "--out",
     "manual-reports",
     "--keep-open",
+    "--preflight",
   ]),
   {
     url: "https://example.invalid/Orbifold/",
     outDir: "manual-reports",
     keepOpen: true,
+    preflight: true,
   }
 );
 
@@ -31,6 +34,7 @@ assert.deepEqual(parseManualDeviceArgs(["--help"]), {
   url: null,
   outDir: "reports",
   keepOpen: false,
+  preflight: false,
 });
 
 assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--bogus"]), {

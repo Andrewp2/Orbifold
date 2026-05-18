@@ -71,6 +71,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/ --preflight
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
 ./scripts/check-web-parity-status.mjs reports/
@@ -113,9 +114,11 @@ the local build artifact and the deployed Pages URL.
 Use `docs/web_parity_audit.md` before claiming browser parity; it separates the
 automated evidence above from manual checks that require a real browser,
 deployed Pages site, audio output, and Web MIDI hardware. The manual-device
-script opens a real Chrome session, prompts for audible Web Audio and hardware
-Web MIDI confirmation, records the deployed artifact fingerprint, and writes a
-JSON report under `reports/`. Validate that report with
+script has a `--preflight` mode that checks Chrome, Node WebSocket support, and
+the deployed artifact fingerprint without opening the interactive session. The
+full manual run opens a real Chrome session, prompts for audible Web Audio and
+hardware Web MIDI confirmation, records the deployed artifact fingerprint, and
+writes a JSON report under `reports/`. Validate that report with
 `./scripts/check-web-manual-report.mjs reports/` before treating the manual
 device pass as release evidence.
 Use `./scripts/check-web-parity-status.mjs reports/` as a quick diagnostic when

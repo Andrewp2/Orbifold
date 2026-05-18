@@ -51,6 +51,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/check-web-layout.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/ --preflight
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
 ./scripts/check-web-parity-status.mjs reports/
@@ -158,6 +159,10 @@ these manual checks before treating web as parity-complete:
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and
   inspect the compact, desktop, high-DPI, and 4K PNG or SVG artifacts it writes,
   or inspect the deployed visual artifact uploaded by the Pages workflow.
+- Run `./scripts/check-web-manual-devices.mjs` with `--preflight` against the
+  deployed Pages URL before the interactive hardware pass. The preflight checks
+  Chrome discovery, Node WebSocket support, and the deployed artifact
+  fingerprint without opening the manual browser session.
 - Run `./scripts/check-web-manual-devices.mjs` against the deployed Pages URL
   with a real audio output and Web MIDI device attached. Keep the generated
   `reports/web-manual-devices-*.json` artifact with the release evidence. The

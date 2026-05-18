@@ -23,16 +23,30 @@ let pageSession = null;
 let send = null;
 
 if (isCliEntrypoint()) {
-  await runManualDeviceCli(process.argv.slice(2));
+  try {
+    await runManualDeviceCli(process.argv.slice(2));
+  } catch (error) {
+    console.error(`manual web device runner failed: ${error.message ?? error}`);
+    process.exit(1);
+  }
 }
 
 export async function runManualDeviceCli(args) {
   options = parseManualDeviceArgs(args);
   if (!options.url) {
     console.error(
-      "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open]"
+      "usage: scripts/check-web-manual-devices.mjs <url> [--out reports] [--keep-open] [--preflight]"
     );
     process.exit(2);
+  }
+
+  if (options.preflight) {
+    const preflight = await runManualDevicePreflight(options.url);
+    printManualDevicePreflight(preflight);
+    if (!preflight.passed) {
+      process.exitCode = 1;
+    }
+    return;
   }
 
   if (!process.stdin.isTTY) {
@@ -266,13 +280,15 @@ async function runManualDeviceCheck() {
 }
 
 export function parseManualDeviceArgs(args) {
-  const parsed = { url: null, outDir: "reports", keepOpen: false };
+  const parsed = { url: null, outDir: "reports", keepOpen: false, preflight: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--out") {
       parsed.outDir = args[++index];
     } else if (arg === "--keep-open") {
       parsed.keepOpen = true;
+    } else if (arg === "--preflight") {
+      parsed.preflight = true;
     } else if (arg === "--help" || arg === "-h") {
       parsed.url = null;
       return parsed;
@@ -283,6 +299,67 @@ export function parseManualDeviceArgs(args) {
     }
   }
   return parsed;
+}
+
+export async function runManualDevicePreflight(url) {
+  const checks = [];
+  checks.push({
+    name: "node-websocket",
+    passed: typeof WebSocket === "function",
+    detail:
+      typeof WebSocket === "function"
+        ? "Node.js global WebSocket is available"
+        : "Node.js with a global WebSocket implementation is required",
+  });
+
+  const chromePath = findChrome();
+  checks.push({
+    name: "chrome",
+    passed: Boolean(chromePath),
+    detail: chromePath || "Chrome not found; set CHROME_BIN or install google-chrome/chromium",
+  });
+
+  try {
+    const artifact = await fetchWebArtifactFingerprint(url);
+    checks.push({
+      name: "deployed-artifact",
+      passed: true,
+      detail: `${artifact.files.wasm.bytes} byte wasm artifact at ${artifact.rootUrl}`,
+    });
+    return {
+      url,
+      chromePath,
+      artifact,
+      checks,
+      passed: checks.every((check) => check.passed),
+    };
+  } catch (error) {
+    checks.push({
+      name: "deployed-artifact",
+      passed: false,
+      detail: String(error?.message ?? error),
+    });
+    return {
+      url,
+      chromePath,
+      artifact: null,
+      checks,
+      passed: false,
+    };
+  }
+}
+
+export function printManualDevicePreflight(preflight) {
+  console.log(`manual web device preflight: ${preflight.passed ? "ok" : "failed"}`);
+  console.log(`target: ${preflight.url}`);
+  for (const check of preflight.checks) {
+    console.log(`[${check.passed ? "ok" : "fail"}] ${check.name}: ${check.detail}`);
+  }
+  if (preflight.passed) {
+    console.log(
+      "preflight ok; rerun without --preflight in an interactive terminal with real audio output and Web MIDI hardware"
+    );
+  }
 }
 
 export function createManualDeviceReport(
