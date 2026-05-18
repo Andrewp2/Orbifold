@@ -253,9 +253,12 @@ function validManualReport() {
     name: "manualBrowserFileFlows",
     pass: true,
     evidence: {
+      downloadFileName: "project.orbifold",
       downloadSize: 128,
+      project: "orbifold_project=1\n",
       assetCount: 1,
       scaleDescription: "Browser 5-EDO",
+      scalaPath: "browser_5_edo.scl",
       lumatonePath: "classic.ltn",
       lumatoneLoaded: true,
     },
