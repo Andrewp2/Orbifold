@@ -49,6 +49,7 @@ const report = {
     path: chromePath,
   },
   checks: [],
+  clicks: [],
   states: {},
   userConfirmations: {},
   browserEvents: [],
@@ -123,10 +124,10 @@ async function runManualDeviceCheck() {
   report.userConfirmations.visualInspection = visualOk;
   addCheck("manualVisualInspection", visualOk, pickRuntimeEvidence(await evaluateRuntimeState()));
 
-  await dispatchAction("view.devices");
+  await clickManualControl("viewDevices");
   await delay(500);
 
-  await dispatchAction("audio.refresh");
+  await clickManualControl("audioRefresh");
   await promptEnter(
     "If Chrome asks for audio-output permission, grant it. Select the desired audio output in Orbifold if needed, then press Enter."
   );
@@ -138,7 +139,7 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterAudioRefresh.lastStatus,
   });
 
-  await dispatchAction("audio.connect");
+  await clickManualControl("audioConnect");
   await delay(1200);
   report.states.afterAudioConnect = await evaluateProjectState();
   addCheck("webAudioConnectedState", report.states.afterAudioConnect.audioStreamConnected, {
@@ -151,7 +152,7 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterAudioConnect.lastStatus,
   });
 
-  await dispatchAction("audio.test_a4");
+  await clickManualControl("audioTestA4");
   await delay(1500);
   report.states.afterAudioTest = await evaluateProjectState();
   const heardA4 = await confirm("Did you hear the A4 test tone from the selected browser output?");
@@ -164,11 +165,11 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterAudioTest.lastStatus,
   });
 
-  await dispatchAction("midi.refresh");
+  await clickManualControl("midiRefresh");
   await promptEnter(
     "Grant Web MIDI permission if prompted, connect a real MIDI device, then press Enter."
   );
-  await dispatchAction("midi.refresh");
+  await clickManualControl("midiRefresh");
   await delay(1000);
   report.states.afterMidiRefresh = await evaluateProjectState();
   addCheck("webMidiInputsDiscovered", report.states.afterMidiRefresh.midiInputCount > 0, {
@@ -178,7 +179,7 @@ async function runManualDeviceCheck() {
     lastStatus: report.states.afterMidiRefresh.lastStatus,
   });
 
-  await dispatchAction("midi.connect");
+  await clickManualControl("midiConnect");
   await delay(1000);
   report.states.afterMidiConnect = await evaluateProjectState();
   addCheck("webMidiConnectedState", report.states.afterMidiConnect.connectedMidiInput.length > 0, {
@@ -211,11 +212,11 @@ async function runManualDeviceCheck() {
   });
 
   const beforeRecording = await evaluateProjectState();
-  await dispatchAction("transport.record");
+  await clickManualControl("record");
   await promptEnter(
     "Recording is armed. Play and release one MIDI note, wait a moment, then press Enter."
   );
-  await dispatchAction("transport.record");
+  await clickManualControl("record");
   await delay(800);
   report.states.afterMidiRecording = await evaluateProjectState();
   const recordedNote =
@@ -359,6 +360,7 @@ async function connectToPage(browserWsUrl) {
   await sendMessage("Log.enable", {}, sessionId);
   await sendMessage("Network.enable", {}, sessionId);
   await sendMessage("Page.enable", {}, sessionId);
+  await sendMessage("Page.bringToFront", {}, sessionId);
   return { send: sendMessage, pageSession: sessionId };
 }
 
@@ -454,18 +456,72 @@ async function evaluateProjectState() {
   return result.result.value ?? {};
 }
 
-async function dispatchAction(action) {
+async function evaluateManualControlGeometry() {
   const result = await send(
     "Runtime.evaluate",
     {
-      expression: `window.orbifoldDispatchAction(${JSON.stringify(action)})`,
+      expression: `(() => {
+        const pointFromDataset = (prefix) => ({
+          x: Number(document.body.dataset[prefix + "X"] ?? 0),
+          y: Number(document.body.dataset[prefix + "Y"] ?? 0)
+        });
+        return {
+          viewDevices: pointFromDataset("orbifoldManualViewDevices"),
+          audioRefresh: pointFromDataset("orbifoldManualAudioRefresh"),
+          audioConnect: pointFromDataset("orbifoldManualAudioConnect"),
+          audioTestA4: pointFromDataset("orbifoldManualAudioTestA4"),
+          midiRefresh: pointFromDataset("orbifoldManualMidiRefresh"),
+          midiConnect: pointFromDataset("orbifoldManualMidiConnect"),
+          record: pointFromDataset("orbifoldManualRecord")
+        };
+      })()`,
       returnByValue: true,
     },
     pageSession
   );
-  if (result.result.value !== true) {
-    throw new Error(`browser action dispatch hook rejected ${action}`);
+  return result.result.value ?? {};
+}
+
+async function waitForManualControl(name) {
+  const deadline = Date.now() + timeoutMs;
+  let geometry = null;
+  while (Date.now() <= deadline) {
+    geometry = await evaluateManualControlGeometry();
+    const point = geometry[name];
+    if (point && point.x > 0 && point.y > 0) {
+      return point;
+    }
+    await delay(250);
   }
+  throw new Error(`manual control ${name} was not visible; geometry: ${JSON.stringify(geometry)}`);
+}
+
+async function clickManualControl(name) {
+  const point = await waitForManualControl(name);
+  report.clicks.push({ name, point, at: new Date().toISOString() });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: point.x,
+    y: point.y,
+    button: "none",
+  }, pageSession);
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: point.x,
+    y: point.y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+  }, pageSession);
+  await delay(80);
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: point.x,
+    y: point.y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1,
+  }, pageSession);
 }
 
 async function promptEnter(message) {

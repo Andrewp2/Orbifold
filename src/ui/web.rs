@@ -380,6 +380,7 @@ impl WebOrbifoldApp {
         self.frame_count = self.frame_count.saturating_add(1);
         mark_browser_runtime_ready(self.frame_count, viewport);
         self.publish_browser_automation_geometry();
+        self.publish_browser_manual_control_geometry();
         self.publish_browser_text_audit();
         if visual_snapshot_requested_js() {
             self.publish_browser_visual_snapshot();
@@ -578,6 +579,43 @@ impl WebOrbifoldApp {
             piano_loop_start.y as f64,
             piano_loop_end.x as f64,
             piano_loop_end.y as f64,
+        );
+    }
+
+    fn publish_browser_manual_control_geometry(&self) {
+        let mut document = self.view(self.viewport);
+        let mut text_measurer = ApproxTextMeasurer;
+        if document
+            .compute_layout(self.viewport, &mut text_measurer)
+            .is_err()
+        {
+            publish_manual_device_automation_js(
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            );
+            return;
+        }
+        let view_devices = document_node_center(&document, "view.devices");
+        let audio_refresh = document_node_center(&document, "audio.refresh");
+        let audio_connect = document_node_center(&document, "audio.connect");
+        let audio_test_a4 = document_node_center(&document, "audio.test_a4");
+        let midi_refresh = document_node_center(&document, "midi.refresh");
+        let midi_connect = document_node_center(&document, "midi.connect");
+        let record = document_node_center(&document, "transport.record");
+        publish_manual_device_automation_js(
+            view_devices.x as f64,
+            view_devices.y as f64,
+            audio_refresh.x as f64,
+            audio_refresh.y as f64,
+            audio_connect.x as f64,
+            audio_connect.y as f64,
+            audio_test_a4.x as f64,
+            audio_test_a4.y as f64,
+            midi_refresh.x as f64,
+            midi_refresh.y as f64,
+            midi_connect.x as f64,
+            midi_connect.y as f64,
+            record.x as f64,
+            record.y as f64,
         );
     }
 
@@ -1659,6 +1697,18 @@ impl WebOrbifoldApp {
     }
 }
 
+fn document_node_center(document: &UiDocument, name: &str) -> UiPoint {
+    document
+        .nodes()
+        .iter()
+        .find(|node| node.name == name)
+        .map(|node| {
+            let rect = node.layout.rect;
+            UiPoint::new(rect.x + rect.width * 0.5, rect.y + rect.height * 0.5)
+        })
+        .unwrap_or_else(|| UiPoint::new(0.0, 0.0))
+}
+
 fn widget_drag_phase(phase: WidgetDragPhase) -> WidgetValueEditPhase {
     match phase {
         WidgetDragPhase::Begin => WidgetValueEditPhase::Begin,
@@ -2399,6 +2449,38 @@ export function publish_layout_automation_js(
   document.body.dataset.orbifoldPianoLoopEndStartY = String(pianoLoopEndStartY || 0);
   document.body.dataset.orbifoldPianoLoopEndTargetX = String(pianoLoopEndTargetX || 0);
   document.body.dataset.orbifoldPianoLoopEndTargetY = String(pianoLoopEndTargetY || 0);
+}
+
+export function publish_manual_device_automation_js(
+  viewDevicesX,
+  viewDevicesY,
+  audioRefreshX,
+  audioRefreshY,
+  audioConnectX,
+  audioConnectY,
+  audioTestA4X,
+  audioTestA4Y,
+  midiRefreshX,
+  midiRefreshY,
+  midiConnectX,
+  midiConnectY,
+  recordX,
+  recordY
+) {
+  document.body.dataset.orbifoldManualViewDevicesX = String(viewDevicesX || 0);
+  document.body.dataset.orbifoldManualViewDevicesY = String(viewDevicesY || 0);
+  document.body.dataset.orbifoldManualAudioRefreshX = String(audioRefreshX || 0);
+  document.body.dataset.orbifoldManualAudioRefreshY = String(audioRefreshY || 0);
+  document.body.dataset.orbifoldManualAudioConnectX = String(audioConnectX || 0);
+  document.body.dataset.orbifoldManualAudioConnectY = String(audioConnectY || 0);
+  document.body.dataset.orbifoldManualAudioTestA4X = String(audioTestA4X || 0);
+  document.body.dataset.orbifoldManualAudioTestA4Y = String(audioTestA4Y || 0);
+  document.body.dataset.orbifoldManualMidiRefreshX = String(midiRefreshX || 0);
+  document.body.dataset.orbifoldManualMidiRefreshY = String(midiRefreshY || 0);
+  document.body.dataset.orbifoldManualMidiConnectX = String(midiConnectX || 0);
+  document.body.dataset.orbifoldManualMidiConnectY = String(midiConnectY || 0);
+  document.body.dataset.orbifoldManualRecordX = String(recordX || 0);
+  document.body.dataset.orbifoldManualRecordY = String(recordY || 0);
 }
 
 export function install_browser_keyboard_shortcuts_js() {
@@ -3355,6 +3437,24 @@ extern "C" {
         piano_loop_end_start_y: f64,
         piano_loop_end_target_x: f64,
         piano_loop_end_target_y: f64,
+    );
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = publish_manual_device_automation_js)]
+    fn publish_manual_device_automation_js(
+        view_devices_x: f64,
+        view_devices_y: f64,
+        audio_refresh_x: f64,
+        audio_refresh_y: f64,
+        audio_connect_x: f64,
+        audio_connect_y: f64,
+        audio_test_a4_x: f64,
+        audio_test_a4_y: f64,
+        midi_refresh_x: f64,
+        midi_refresh_y: f64,
+        midi_connect_x: f64,
+        midi_connect_y: f64,
+        record_x: f64,
+        record_y: f64,
     );
 
     #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = load_browser_settings_text_js)]
