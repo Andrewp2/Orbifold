@@ -65,7 +65,8 @@ try {
     console.log(
       `- ${result.label}: canvas ${result.canvasClientWidth}x${result.canvasClientHeight}, ` +
         `grid ${Math.round(result.pianoGridWidth)}x${Math.round(result.pianoGridHeight)}, ` +
-        `piano ${Math.round(result.pianoRollHeight)} high`
+        `piano ${Math.round(result.pianoRollHeight)} high, ` +
+        `text ${result.textAuditCount}`
     );
   }
   console.log(`Orbifold web layout checks passed for ${url}`);
@@ -240,7 +241,8 @@ function isReadyForLayoutCheck(state, viewport) {
     Number(state.canvasClientWidth) >= viewport.width - 2 &&
     Number(state.canvasClientHeight) >= viewport.height - 2 &&
     Number(state.canvasWidth) >= viewport.width * dpr - 2 &&
-    Number(state.canvasHeight) >= viewport.height * dpr - 2
+    Number(state.canvasHeight) >= viewport.height * dpr - 2 &&
+    state.textAuditReady === "1"
   );
 }
 
@@ -284,6 +286,11 @@ async function evaluateWebState(send, sessionId) {
           pianoGridHeight: Number(dataset.orbifoldPianoGridHeight ?? 0),
           pianoRollHeight: Number(dataset.orbifoldPianoRollHeight ?? 0),
           rightPanelWidth: Number(dataset.orbifoldRightPanelWidth ?? 0),
+          textAuditReady: dataset.orbifoldTextAuditReady ?? "",
+          textAuditCount: Number(dataset.orbifoldTextAuditCount ?? 0),
+          textAuditIssueCount: Number(dataset.orbifoldTextAuditIssueCount ?? 0),
+          textAuditNonFiniteCount: Number(dataset.orbifoldTextAuditNonFiniteCount ?? 0),
+          textAuditSampleIssue: dataset.orbifoldTextAuditSampleIssue ?? "",
           lastStatus: dataset.orbifoldLastStatus ?? ""
         };
       })()`,
@@ -316,6 +323,12 @@ function layoutFailures(state, viewport) {
   requireAtLeast(failures, "pianoGridHeight", state.pianoGridHeight, 120);
   requireAtLeast(failures, "pianoRollHeight", state.pianoRollHeight, 180);
   requireAtLeast(failures, "rightPanelWidth", state.rightPanelWidth, 180);
+  requireAtLeast(failures, "textAuditCount", state.textAuditCount, 10);
+  requireExact(failures, "textAuditIssueCount", state.textAuditIssueCount, 0);
+  requireExact(failures, "textAuditNonFiniteCount", state.textAuditNonFiniteCount, 0);
+  if (state.textAuditSampleIssue) {
+    failures.push(`textAuditSampleIssue ${state.textAuditSampleIssue}`);
+  }
 
   requireNear(failures, "canvasLeft", state.canvasLeft, 0, tolerance);
   requireNear(failures, "canvasTop", state.canvasTop, 0, tolerance);
@@ -339,6 +352,12 @@ function requireAtLeast(failures, label, value, minimum) {
 function requireAtMost(failures, label, value, maximum) {
   if (!Number.isFinite(value) || value > maximum) {
     failures.push(`${label} ${value} > ${maximum}`);
+  }
+}
+
+function requireExact(failures, label, value, expected) {
+  if (!Number.isFinite(value) || value !== expected) {
+    failures.push(`${label} ${value} !== ${expected}`);
   }
 }
 

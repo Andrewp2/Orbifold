@@ -97,10 +97,12 @@ for audio output, real Web MIDI hardware, and visual inspection.
 The web layout check launches headless Chrome at compact, desktop, high-DPI, and
 4K viewports. It verifies that the wasm runtime replaces the fallback shell, the
 canvas client and backing-store sizes fill the viewport at the expected device
-pixel ratio, the document does not overflow/scroll, and key editor geometry such
-as the piano grid, piano roll, and right panel stays usable. This catches
+pixel ratio, the document does not overflow/scroll, key editor geometry such as
+the piano grid, piano roll, and right panel stays usable, and Orbifold's
+estimated rendered text boxes report no overlap or invalid layout. This catches
 automatable layout regressions like the UI rendering only in the top-left
-quarter of the window, but it is still not a substitute for human visual review.
+quarter of the window or obvious text collisions, but it is still not a
+substitute for human visual review.
 
 The visual capture script launches headless Chrome with WebGPU enabled, waits
 for the live runtime to render at compact, desktop, high-DPI, and 4K viewports,
@@ -163,7 +165,7 @@ themselves:
 - The Pages workflow file exists, without a successful deployed Pages run.
 - `scripts/check-web-live.mjs` passes without a manual browser runtime check.
 - `scripts/check-web-layout.mjs` passes without visual inspection; it checks
-  measurable geometry, not whether the rendered DAW surface is aesthetically or
-  ergonomically correct.
+  measurable geometry and estimated text overlap, not whether the rendered DAW
+  surface is aesthetically or ergonomically correct.
 
 Treat these as partial evidence and keep the open gap visible in the handoff.

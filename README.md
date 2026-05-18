@@ -75,7 +75,8 @@ python3 -m http.server 4173 --directory dist
 
 The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
 viewports and verifies canvas coverage, backing-store size, no document
-overflow, and non-collapsed editor geometry.
+overflow, non-collapsed editor geometry, and Orbifold's estimated rendered text
+boxes for overlap or invalid layout.
 
 The smoke check launches headless Chrome with WebGPU enabled and fails on
 browser exceptions, console errors, failed asset loads, missing WebGPU, a

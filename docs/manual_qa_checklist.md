@@ -266,7 +266,8 @@ musically usable.
   relative asset references.
 - Run `./scripts/check-web-layout.mjs` against the deployed Pages URL and
   confirm compact, desktop, high-DPI, and 4K browser layouts have full canvas
-  coverage, no page overflow, and usable editor geometry.
+  coverage, no page overflow, usable editor geometry, and no reported text
+  overlap/invalid text layout.
 - Run `./scripts/check-web-smoke.mjs` against the deployed Pages URL or confirm
   the Pages workflow's deployed smoke step passed.
 - Run `./scripts/capture-web-visuals.mjs` against the deployed Pages URL and

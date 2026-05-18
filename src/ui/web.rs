@@ -3,8 +3,9 @@ use std::rc::Rc;
 
 use js_sys::{Array, Reflect};
 use operad::{
-    KeyCode, KeyModifiers, UiDocument, UiInputEvent, UiPoint, UiSize, WidgetAction,
-    WidgetActionKind, WidgetDrag, WidgetDragPhase, WidgetTextEdit, WidgetValueEditPhase,
+    ApproxTextMeasurer, KeyCode, KeyModifiers, UiDocument, UiInputEvent, UiPoint, UiSize,
+    WidgetAction, WidgetActionKind, WidgetDrag, WidgetDragPhase, WidgetTextEdit,
+    WidgetValueEditPhase,
 };
 use wasm_bindgen::JsValue;
 
@@ -371,6 +372,7 @@ impl WebOrbifoldApp {
         self.frame_count = self.frame_count.saturating_add(1);
         mark_browser_runtime_ready(self.frame_count, viewport);
         self.publish_browser_automation_geometry();
+        self.publish_browser_text_audit();
         self.publish_browser_runtime_state();
         self.runtime_ready_published = true;
     }
@@ -429,6 +431,26 @@ impl WebOrbifoldApp {
             &lumatone_path,
             lumatone_loaded,
         );
+    }
+
+    fn publish_browser_text_audit(&self) {
+        let mut document = self.view(self.viewport);
+        let mut text_measurer = ApproxTextMeasurer;
+        match document.compute_layout(self.viewport, &mut text_measurer) {
+            Ok(()) => {
+                let summary = super::text_audit::text_audit_summary(&document);
+                publish_text_audit_js(
+                    summary.text_count as f64,
+                    summary.issue_count as f64,
+                    summary.non_finite_count as f64,
+                    summary.sample_issue.as_deref().unwrap_or(""),
+                );
+            }
+            Err(err) => {
+                let sample = format!("text audit layout failed: {err}");
+                publish_text_audit_js(0.0, 0.0, 1.0, &sample);
+            }
+        }
     }
 
     fn publish_browser_automation_geometry(&self) {
@@ -2200,6 +2222,14 @@ export function publish_automation_geometry_js(
   document.body.dataset.orbifoldPianoMaxPitch = String(pianoMaxPitch || 0);
 }
 
+export function publish_text_audit_js(textCount, issueCount, nonFiniteCount, sampleIssue) {
+  document.body.dataset.orbifoldTextAuditReady = "1";
+  document.body.dataset.orbifoldTextAuditCount = String(textCount || 0);
+  document.body.dataset.orbifoldTextAuditIssueCount = String(issueCount || 0);
+  document.body.dataset.orbifoldTextAuditNonFiniteCount = String(nonFiniteCount || 0);
+  document.body.dataset.orbifoldTextAuditSampleIssue = String(sampleIssue || "");
+}
+
 export function publish_pointer_action_js(action, phase, x, y) {
   document.body.dataset.orbifoldLastPointerAction = String(action || "");
   document.body.dataset.orbifoldLastPointerPhase = String(phase || "");
@@ -3042,6 +3072,14 @@ extern "C" {
         piano_view_beats: f64,
         piano_min_pitch: f64,
         piano_max_pitch: f64,
+    );
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = publish_text_audit_js)]
+    fn publish_text_audit_js(
+        text_count: f64,
+        issue_count: f64,
+        non_finite_count: f64,
+        sample_issue: &str,
     );
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = publish_pointer_action_js)]
