@@ -188,7 +188,7 @@ export function validateManualDeviceReport(report) {
   }
 }
 
-async function resolveReportPath(targetPath) {
+export async function resolveReportPath(targetPath) {
   const targetStat = await stat(targetPath);
   if (targetStat.isFile()) {
     return targetPath;

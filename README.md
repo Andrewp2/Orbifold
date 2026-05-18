@@ -73,6 +73,7 @@ python3 -m http.server 4173 --directory dist
 ./scripts/capture-web-visuals.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-devices.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-manual-report.mjs reports/
+./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
 ```
 
 The layout check launches headless Chrome at compact, desktop, high-DPI, and 4K
@@ -114,6 +115,9 @@ script opens a real Chrome session, prompts for audible Web Audio and hardware
 Web MIDI confirmation, and writes a JSON report under `reports/`. Validate that
 report with `./scripts/check-web-manual-report.mjs reports/` before treating the
 manual device pass as release evidence.
+After the manual report exists, `./scripts/check-web-parity-gate.mjs` runs the
+deployed live/layout/smoke checks, captures deployed visuals, validates the
+manual report, and writes a final gate report under `reports/`.
 
 ## Music Workflow
 

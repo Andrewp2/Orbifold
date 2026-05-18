@@ -284,6 +284,9 @@ musically usable.
   `reports/web-manual-devices-*.json` artifact with the release evidence.
 - Run `./scripts/check-web-manual-report.mjs reports/` against the generated
   report and confirm it accepts the real browser/audio/MIDI evidence.
+- Run `./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
+  and keep the generated `reports/web-parity-gate-*.json` with the release
+  evidence.
 - Confirm browser `Open` refuses dirty replacement on the first click/shortcut
   and opens the picker only after the second confirmed action.
 - Confirm browser `Save`/`Save As` downloads `.orbifold` project text and the

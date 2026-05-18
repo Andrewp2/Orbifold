@@ -345,6 +345,53 @@ fn web_manual_report_validator_requires_real_device_evidence() {
 }
 
 #[test]
+fn web_parity_gate_ties_deployed_and_manual_evidence_together() {
+    let script = include_str!("../scripts/check-web-parity-gate.mjs");
+    let readme = include_str!("../README.md");
+    let audit = include_str!("../docs/web_parity_audit.md");
+    let checklist = include_str!("../docs/manual_qa_checklist.md");
+    let release_checklist = include_str!("../docs/release_checklist.md");
+    let release_workflow = include_str!("../docs/release_workflow.md");
+
+    for required in [
+        "usage: scripts/check-web-parity-gate.mjs <https://pages-url/>",
+        "orbifold.web_parity_gate.v1",
+        "check-web-live.mjs",
+        "check-web-layout.mjs",
+        "check-web-smoke.mjs",
+        "capture-web-visuals.mjs",
+        "check-web-manual-report.mjs",
+        "web-parity-gate-",
+        "--report",
+        "--visual-out",
+        "--skip-visual-capture",
+        "manualDeviceReport",
+        "manualReportTarget",
+        "manual report target",
+        "deployedVisualCapture",
+        "Orbifold web parity gate passed",
+    ] {
+        assert!(
+            script.contains(required),
+            "scripts/check-web-parity-gate.mjs should tie web parity evidence together: {required}"
+        );
+    }
+
+    for docs in [
+        readme,
+        audit,
+        checklist,
+        release_checklist,
+        release_workflow,
+    ] {
+        assert!(
+            docs.contains("./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/"),
+            "web parity gate workflow should be documented"
+        );
+    }
+}
+
+#[test]
 fn web_live_check_script_verifies_deployed_pages_artifact_shape() {
     let script = include_str!("../scripts/check-web-live.mjs");
 

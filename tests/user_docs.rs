@@ -250,6 +250,7 @@ fn web_parity_audit_covers_automated_and_manual_evidence() {
         "./scripts/check-web-live.mjs https://<user>.github.io/<repo>/",
         "./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/",
         "./scripts/check-web-manual-report.mjs reports/",
+        "./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/",
         "GitHub Pages",
         "Web MIDI",
         "Web Audio",

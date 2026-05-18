@@ -86,6 +86,10 @@ When the manual browser/device pass writes `reports/web-manual-devices-*.json`,
 run `./scripts/check-web-manual-report.mjs reports/` so the release evidence is
 checked for passed Web Audio, Web MIDI, real-click, and user-confirmation
 fields instead of only preserving an unchecked JSON file.
+Then run
+`./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/`
+to tie the deployed live/layout/smoke checks, visual capture, and manual report
+validation into one final pass/fail artifact.
 After deployment, run `./scripts/check-web-live.mjs` against the Pages URL to
 verify the published site is serving the expected wasm loader, wasm binary,
 icons, relative paths, and runtime hooks. The Pages workflow also runs
@@ -168,6 +172,7 @@ site is serving the expected artifact. Start by running:
 ```sh
 ./scripts/check-web-live.mjs https://<user>.github.io/<repo>/
 ./scripts/check-web-smoke.mjs https://<user>.github.io/<repo>/
+./scripts/check-web-parity-gate.mjs https://<user>.github.io/<repo>/ --report reports/
 ```
 
 ## 6. Prepare Handoff Notes
