@@ -132,7 +132,10 @@ async function runManualDeviceCheck() {
     "If Chrome asks for audio-output permission, grant it. Select the desired audio output in Orbifold if needed, then press Enter."
   );
   report.states.afterAudioRefresh = await evaluateProjectState();
-  addCheck("webAudioOutputsDiscovered", report.states.afterAudioRefresh.audioOutputCount > 0, {
+  const audioOutputsDiscovered =
+    report.states.afterAudioRefresh.audioOutputCount > 0 &&
+    report.states.afterAudioRefresh.browserAudioOutputNames.length > 0;
+  addCheck("webAudioOutputsDiscovered", audioOutputsDiscovered, {
     audioOutputCount: report.states.afterAudioRefresh.audioOutputCount,
     browserAudioOutputNames: report.states.afterAudioRefresh.browserAudioOutputNames,
     browserAudioDiagnostic: report.states.afterAudioRefresh.browserAudioDiagnostic,
@@ -142,7 +145,13 @@ async function runManualDeviceCheck() {
   await clickManualControl("audioConnect");
   await delay(1200);
   report.states.afterAudioConnect = await evaluateProjectState();
-  addCheck("webAudioConnectedState", report.states.afterAudioConnect.audioStreamConnected, {
+  const audioConnected =
+    report.states.afterAudioConnect.audioStreamConnected &&
+    report.states.afterAudioConnect.audioContextCreated &&
+    report.states.afterAudioConnect.audioProcessorAttached &&
+    report.states.afterAudioConnect.audioResumeRequested &&
+    report.states.afterAudioConnect.audioResumeResolved;
+  addCheck("webAudioConnectedState", audioConnected, {
     connectedAudioOutput: report.states.afterAudioConnect.connectedAudioOutput,
     browserAudioDiagnostic: report.states.afterAudioConnect.browserAudioDiagnostic,
     audioContextCreated: report.states.afterAudioConnect.audioContextCreated,
@@ -157,7 +166,13 @@ async function runManualDeviceCheck() {
   report.states.afterAudioTest = await evaluateProjectState();
   const heardA4 = await confirm("Did you hear the A4 test tone from the selected browser output?");
   report.userConfirmations.audibleA4 = heardA4;
-  addCheck("manualAudibleWebAudio", heardA4 && report.states.afterAudioTest.audioNonzero, {
+  const audibleWebAudio =
+    heardA4 &&
+    report.states.afterAudioTest.audioNonzero &&
+    report.states.afterAudioTest.audioCallbackCount > 0 &&
+    report.states.afterAudioTest.audioFrameCount > 0 &&
+    report.states.afterAudioTest.audioPeak > 0;
+  addCheck("manualAudibleWebAudio", audibleWebAudio, {
     audioCallbackCount: report.states.afterAudioTest.audioCallbackCount,
     audioFrameCount: report.states.afterAudioTest.audioFrameCount,
     audioPeak: report.states.afterAudioTest.audioPeak,
@@ -172,7 +187,10 @@ async function runManualDeviceCheck() {
   await clickManualControl("midiRefresh");
   await delay(1000);
   report.states.afterMidiRefresh = await evaluateProjectState();
-  addCheck("webMidiInputsDiscovered", report.states.afterMidiRefresh.midiInputCount > 0, {
+  const midiInputsDiscovered =
+    report.states.afterMidiRefresh.midiInputCount > 0 &&
+    report.states.afterMidiRefresh.browserMidiInputNames.length > 0;
+  addCheck("webMidiInputsDiscovered", midiInputsDiscovered, {
     midiInputCount: report.states.afterMidiRefresh.midiInputCount,
     browserMidiInputNames: report.states.afterMidiRefresh.browserMidiInputNames,
     browserMidiDiagnostic: report.states.afterMidiRefresh.browserMidiDiagnostic,
@@ -182,7 +200,10 @@ async function runManualDeviceCheck() {
   await clickManualControl("midiConnect");
   await delay(1000);
   report.states.afterMidiConnect = await evaluateProjectState();
-  addCheck("webMidiConnectedState", report.states.afterMidiConnect.connectedMidiInput.length > 0, {
+  const midiConnected =
+    report.states.afterMidiConnect.connectedMidiInput.length > 0 &&
+    report.states.afterMidiConnect.midiInputConnection.length > 0;
+  addCheck("webMidiConnectedState", midiConnected, {
     connectedMidiInput: report.states.afterMidiConnect.connectedMidiInput,
     midiInputConnection: report.states.afterMidiConnect.midiInputConnection,
     browserMidiDiagnostic: report.states.afterMidiConnect.browserMidiDiagnostic,
