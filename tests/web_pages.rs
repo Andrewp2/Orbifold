@@ -390,6 +390,7 @@ fn web_manual_device_script_records_real_browser_device_evidence() {
         "parseManualDeviceArgs",
         "createManualDeviceReport",
         "persistedNoteCount",
+        "--out=manual-reports",
         "preflight: true",
         "finalize: true",
         "--out requires a value",
@@ -430,6 +431,7 @@ fn web_manual_report_validator_requires_real_device_evidence() {
         "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>",
         "manual web device report failed:",
         "orbifold.web_manual_device_parity.v1",
+        "parseManualReportArgs",
         "manualDeviceVerifierCompleted",
         "manualAudibleWebAudio",
         "manualRealMidiInput",
@@ -483,6 +485,8 @@ fn web_manual_report_validator_requires_real_device_evidence() {
     }
 
     for required in [
+        "parseManualReportArgs",
+        "Unknown argument: --bogus",
         "validateManualDeviceReport(report)",
         "browserEvents should not contain runtime errors",
         "clicks.record expected at least 2",
@@ -615,6 +619,7 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
         "--url",
         "orbifold.web_parity_gate.v1",
         "parseParityCompletionArgs",
+        "--url requires a value",
         "resolveParityCompletionReportPath",
         "validateParityCompletionReport",
         "validateParityCompletionReportFile",
@@ -643,6 +648,7 @@ fn web_parity_completion_script_validates_saved_gate_evidence() {
 
     for required in [
         "validateParityCompletionReport(gateReport, { manualReport, visualManifest })",
+        "--url requires a value",
         "visualManifest should be present",
         "passed expected true, got false",
         "skippedVisualCapture expected false, got true",
@@ -690,6 +696,7 @@ fn web_parity_status_script_reports_missing_evidence() {
         "usage: scripts/check-web-parity-status.mjs [reports-dir]",
         "--url",
         "parseWebParityStatusArgs",
+        "--url requires a value",
         "inspectWebParityStatus",
         "validateManualDeviceReport(report)",
         "validateParityCompletionReportFile(path, { expectedUrl: options.expectedUrl })",
@@ -713,6 +720,7 @@ fn web_parity_status_script_reports_missing_evidence() {
 
     for required in [
         "inspectWebParityStatus(path.join(tempDir, \"missing\"))",
+        "--url requires a value",
         "missingStatus.complete, false",
         "completeStatus.complete, true",
         "completeStatus.manualReport.checkCount, 13",

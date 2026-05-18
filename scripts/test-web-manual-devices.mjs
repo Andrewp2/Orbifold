@@ -36,6 +36,14 @@ assert.deepEqual(
   }
 );
 
+assert.deepEqual(parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--out=manual-reports"]), {
+  url: "https://example.invalid/Orbifold/",
+  outDir: "manual-reports",
+  keepOpen: false,
+  preflight: false,
+  finalize: false,
+});
+
 assert.deepEqual(parseManualDeviceArgs(["--help"]), {
   url: null,
   outDir: "reports",
@@ -48,6 +56,9 @@ assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", 
   message: /Unknown argument: --bogus/,
 });
 assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--out"]), {
+  message: /--out requires a value/,
+});
+assert.throws(() => parseManualDeviceArgs(["https://example.invalid/Orbifold/", "--out="]), {
   message: /--out requires a value/,
 });
 

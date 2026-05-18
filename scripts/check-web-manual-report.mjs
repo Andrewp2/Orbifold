@@ -35,17 +35,15 @@ const requiredClickCounts = {
 };
 
 if (isCliEntrypoint()) {
-  const target = process.argv[2] ?? "reports";
-
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
-    console.error(
-      "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>"
-    );
-    process.exit(2);
-  }
-
   try {
-    const reportPath = await resolveReportPath(target);
+    const options = parseManualReportArgs(process.argv.slice(2));
+    if (options.help) {
+      console.error(
+        "usage: scripts/check-web-manual-report.mjs <reports/web-manual-devices-*.json|reports-dir>"
+      );
+      process.exit(2);
+    }
+    const reportPath = await resolveReportPath(options.target);
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     validateManualDeviceReport(report);
     console.log(`manual web device report ok: ${reportPath}`);
@@ -53,6 +51,24 @@ if (isCliEntrypoint()) {
     console.error(`manual web device report failed: ${error.message ?? error}`);
     process.exit(1);
   }
+}
+
+export function parseManualReportArgs(args) {
+  const parsed = { target: "reports", help: false };
+  let targetSeen = false;
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      return parsed;
+    }
+    if (!arg.startsWith("--") && !targetSeen) {
+      parsed.target = arg;
+      targetSeen = true;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+  return parsed;
 }
 
 export function validateManualDeviceReport(report) {

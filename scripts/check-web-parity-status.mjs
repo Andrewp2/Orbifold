@@ -42,7 +42,11 @@ export function parseWebParityStatusArgs(args) {
       }
       parsed.expectedUrl = value;
     } else if (arg.startsWith("--url=")) {
-      parsed.expectedUrl = arg.slice("--url=".length);
+      const value = arg.slice("--url=".length);
+      if (!value) {
+        throw new Error("--url requires a value");
+      }
+      parsed.expectedUrl = value;
     } else if (arg === "--help" || arg === "-h") {
       parsed.help = true;
       return parsed;

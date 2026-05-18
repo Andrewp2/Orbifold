@@ -362,6 +362,12 @@ export function parseManualDeviceArgs(args) {
         throw new Error("--out requires a value");
       }
       parsed.outDir = value;
+    } else if (arg.startsWith("--out=")) {
+      const value = arg.slice("--out=".length);
+      if (!value) {
+        throw new Error("--out requires a value");
+      }
+      parsed.outDir = value;
     } else if (arg === "--keep-open") {
       parsed.keepOpen = true;
     } else if (arg === "--preflight") {

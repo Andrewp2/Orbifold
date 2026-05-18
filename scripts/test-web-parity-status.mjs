@@ -31,6 +31,9 @@ assert.throws(() => parseWebParityStatusArgs(["reports", "--bogus"]), {
 assert.throws(() => parseWebParityStatusArgs(["reports", "--url"]), {
   message: /--url requires a value/,
 });
+assert.throws(() => parseWebParityStatusArgs(["reports", "--url="]), {
+  message: /--url requires a value/,
+});
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "orbifold-web-parity-status-"));
 try {

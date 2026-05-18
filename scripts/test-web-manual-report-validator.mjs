@@ -1,9 +1,25 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { validateManualDeviceReport } from "./check-web-manual-report.mjs";
+import { parseManualReportArgs, validateManualDeviceReport } from "./check-web-manual-report.mjs";
 
 const report = validManualReport();
+
+assert.deepEqual(parseManualReportArgs([]), {
+  target: "reports",
+  help: false,
+});
+assert.deepEqual(parseManualReportArgs(["reports/web-manual-devices-test.json"]), {
+  target: "reports/web-manual-devices-test.json",
+  help: false,
+});
+assert.deepEqual(parseManualReportArgs(["--help"]), {
+  target: "reports",
+  help: true,
+});
+assert.throws(() => parseManualReportArgs(["reports", "--bogus"]), {
+  message: /Unknown argument: --bogus/,
+});
 
 assert.doesNotThrow(() => validateManualDeviceReport(report));
 
