@@ -183,6 +183,7 @@ async function runSmoke(browserWsUrl) {
       behavior: "allow",
       downloadPath: artifactsDir,
     });
+    await verifyBrowserStartupStorageGuards(send);
     await installMockBrowserDevices(send, sessionId);
     await send(
       "Emulation.setDeviceMetricsOverride",
@@ -340,6 +341,71 @@ async function verifyHighDpiCanvasScale(send, sessionId) {
       state.canvasHeight >= 760,
     "browser canvas did not recover after high-DPI resize"
   );
+}
+
+async function verifyBrowserStartupStorageGuards(send) {
+  const badSettings = "not browser settings";
+  const badProject = "not an orbifold project";
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  });
+  try {
+    await send("Page.enable", {}, sessionId);
+    await send(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: `
+          localStorage.setItem("orbifold.settings.v1", ${JSON.stringify(badSettings)});
+          localStorage.setItem("orbifold.project.v1", ${JSON.stringify(badProject)});
+        `,
+      },
+      sessionId
+    );
+    await send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 1200,
+        height: 760,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId
+    );
+    await send("Page.navigate", { url: urlForSmokeVariant("startup-storage-guard") }, sessionId);
+    await waitForOrbifoldReady(send, sessionId);
+
+    const state = await evaluateProjectState(send, sessionId);
+    if (state.settings !== badSettings || state.project !== badProject) {
+      throw new Error(
+        `browser startup invalid localStorage was overwritten: ${JSON.stringify(state)}`
+      );
+    }
+    if (
+      !state.lastStatus.includes("Project parse error (browser session):") &&
+      !state.lastStatus.includes("Browser settings load error:")
+    ) {
+      throw new Error(
+        `browser startup invalid localStorage did not leave a visible error: ${JSON.stringify(
+          state
+        )}`
+      );
+    }
+  } finally {
+    await send(
+      "Runtime.evaluate",
+      {
+        expression: `
+          localStorage.removeItem("orbifold.settings.v1");
+          localStorage.removeItem("orbifold.project.v1");
+        `,
+        returnByValue: true,
+      },
+      sessionId
+    ).catch(() => {});
+    await send("Target.closeTarget", { targetId }).catch(() => {});
+  }
 }
 
 async function verifyToolbarButtonClicks(send, sessionId) {
@@ -2258,6 +2324,12 @@ function thirdNoteDurationBeat(projectText) {
 
 function projectIncludesLoopBeats(state) {
   return state.project.includes(`\nloop_beats=${state.loopBeats}\n`);
+}
+
+function urlForSmokeVariant(label) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("orbifold_smoke", label);
+  return parsed.href;
 }
 
 function isQuantizedToSixteenth(beat) {

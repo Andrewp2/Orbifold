@@ -74,6 +74,8 @@ The headless smoke currently covers:
   malformed browser project, Scala, key-map, and asset imports,
 - dirty-project open confirmation before creating a browser file input,
 - browser tab title updates for dirty and loaded project states,
+- browser startup rejection for invalid saved settings/project storage without
+  overwriting the bad browser storage before the user can recover it,
 - Scala, Lumatone, and WAV asset imports through real browser file inputs, plus
   assigning the imported WAV as the project sample instrument,
 - browser reload persistence for the saved project session, browser-loaded
