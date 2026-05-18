@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbifold</title>
+    <link rel="icon" href="./favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./orbifold_icon.png" />
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #071017;
+        color: #dce6f2;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      body {
+        position: relative;
+      }
+
+      #orbifold-canvas {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        background: #071017;
+        outline: none;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      body.runtime-ready #orbifold-canvas {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      body.runtime-ready #static-preview,
+      body.runtime-failed #orbifold-canvas {
+        display: none;
+      }
+
+      #orbifold-status {
+        position: fixed;
+        z-index: 3;
+        left: 12px;
+        bottom: 42px;
+        min-width: 160px;
+        max-width: calc(100vw - 24px);
+        padding: 6px 8px;
+        border: 1px solid rgba(72, 100, 126, 0.72);
+        border-radius: 4px;
+        background: rgba(7, 16, 24, 0.92);
+        color: #a8b7c8;
+        font-size: 12px;
+        line-height: 16px;
+        pointer-events: none;
+      }
+
+      #orbifold-status:empty {
+        display: none;
+      }
+
+      #static-preview {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        display: grid;
+        grid-template-rows: 62px minmax(0, 1fr) 32px;
+        background: #071017;
+      }
+
+      .topbar,
+      .footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 18px;
+        background: #0a141e;
+        border-bottom: 1px solid #23364a;
+      }
+
+      .footer {
+        justify-content: space-between;
+        border-top: 1px solid #23364a;
+        border-bottom: 0;
+        color: #a8b7c8;
+        font-size: 12px;
+      }
+
+      .brand {
+        margin-right: 24px;
+        font-size: 18px;
+        letter-spacing: 0;
+      }
+
+      .badge {
+        margin-right: 18px;
+        color: #7eebe8;
+        font-size: 11px;
+      }
+
+      .button,
+      .metric {
+        border: 1px solid #2f4661;
+        border-radius: 4px;
+        background: #1b2838;
+        color: #dce6f2;
+        font-size: 13px;
+      }
+
+      .button {
+        min-width: 58px;
+        padding: 7px 10px;
+        text-align: center;
+      }
+
+      .metric {
+        min-width: 68px;
+        padding: 5px 10px;
+      }
+
+      .metric strong,
+      .metric span {
+        display: block;
+      }
+
+      .metric strong {
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .metric span {
+        color: #7f90a2;
+        font-size: 9px;
+      }
+
+      .preview-grid {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(220px, 18vw) minmax(420px, 1fr) minmax(260px, 20vw);
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .column,
+      .panel {
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .column {
+        display: grid;
+        gap: 10px;
+      }
+
+      .left {
+        grid-template-rows: 1fr 1fr;
+      }
+
+      .center {
+        grid-template-rows: minmax(260px, 1fr) minmax(240px, 1fr);
+      }
+
+      .panel {
+        overflow: hidden;
+        border: 1px solid #2c4159;
+        border-radius: 6px;
+        background: #0d1b27;
+      }
+
+      .panel h2 {
+        margin: 16px 14px 12px;
+        color: #a8b5c6;
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 14px 8px;
+        padding: 7px 9px;
+        border-radius: 4px;
+        color: #dce6f2;
+        font-size: 13px;
+      }
+
+      .row.selected {
+        background: #1e3148;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border: 1px solid #dce6f2;
+        border-radius: 50%;
+      }
+
+      .row.selected .dot {
+        border-color: #ae7cf9;
+        background: #ae7cf9;
+      }
+
+      .search {
+        margin: 0 14px 10px;
+        padding: 7px 10px;
+        border: 1px solid #23364a;
+        border-radius: 4px;
+        background: #08111a;
+        color: #8191a2;
+        font-size: 12px;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 6px;
+        margin: 0 14px 14px;
+      }
+
+      .tab {
+        padding: 6px 10px;
+        border: 1px solid #2f4661;
+        border-radius: 4px;
+        background: #1b2838;
+        font-size: 12px;
+      }
+
+      .tab.active {
+        background: #185c6c;
+      }
+
+      .folder {
+        margin: 0 18px 7px;
+        color: #c1ccda;
+        font-size: 13px;
+      }
+
+      .arrangement,
+      .piano {
+        position: relative;
+        margin: 14px;
+        height: calc(100% - 28px);
+        background:
+          linear-gradient(#1c2b3a 1px, transparent 1px),
+          linear-gradient(90deg, #203244 1px, transparent 1px),
+          #071017;
+        background-size: 100% 48px, 8.333% 100%;
+      }
+
+      .clip {
+        position: absolute;
+        height: 30px;
+        border-radius: 4px;
+        opacity: 0.9;
+      }
+
+      .playhead {
+        position: absolute;
+        top: -2px;
+        bottom: -2px;
+        left: 42%;
+        width: 2px;
+        background: #30e0e6;
+      }
+
+      .piano {
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        grid-template-rows: 34px minmax(0, 1fr) 46px;
+        background: #06101a;
+      }
+
+      .piano-tools {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 6px;
+        padding: 5px 8px;
+        background: #08111a;
+      }
+
+      .keys {
+        grid-row: 2;
+        background: repeating-linear-gradient(#13202c 0 24px, #0d1721 24px 48px);
+        color: #aebcca;
+        font-size: 12px;
+      }
+
+      .keys div {
+        height: 48px;
+        padding: 6px 0 0 16px;
+      }
+
+      .grid {
+        grid-row: 2;
+        position: relative;
+        background:
+          linear-gradient(#1d2d3e 1px, transparent 1px),
+          linear-gradient(90deg, #1d2d3e 1px, transparent 1px),
+          #06101a;
+        background-size: 100% 24px, 6.25% 100%;
+      }
+
+      .note {
+        position: absolute;
+        height: 10px;
+        border-radius: 3px;
+        background: #66beee;
+      }
+
+      .velocity {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: end;
+        gap: 18px;
+        padding: 6px 0 6px 104px;
+        border-top: 1px solid #2b4058;
+      }
+
+      .velocity i {
+        width: 4px;
+        border-radius: 2px;
+        background: #8c63ea;
+      }
+
+      .right .card {
+        margin: 0 16px 10px;
+        padding: 10px 12px;
+        border: 1px solid #23364a;
+        border-radius: 4px;
+        background: #08111a;
+      }
+
+      .right .card strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .right .card span,
+      .right p {
+        color: #aab8c9;
+        font-size: 12px;
+        line-height: 17px;
+      }
+
+      .right p {
+        margin: 0 16px 14px;
+      }
+
+      @media (max-width: 900px) {
+        .preview-grid {
+          grid-template-columns: 1fr;
+          overflow: auto;
+        }
+
+        .left,
+        .right {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="static-preview" aria-label="Orbifold static web fallback">
+      <header class="topbar">
+        <div class="brand">ORBIFOLD</div>
+        <div class="badge">WEB APP</div>
+        <div class="button">Prev</div>
+        <div class="button">Play</div>
+        <div class="button">Stop</div>
+        <div class="button">Rec</div>
+        <div class="button">Loop</div>
+        <div class="metric"><strong>120.00</strong><span>BPM</span></div>
+        <div class="metric"><strong>4/4</strong><span>Meter</span></div>
+        <div class="metric"><strong>C</strong><span>Root</span></div>
+        <div class="metric"><strong>31-EDO</strong><span>Tuning</span></div>
+      </header>
+      <main class="preview-grid">
+        <section class="column left">
+          <div class="panel">
+            <h2>PROJECTS</h2>
+            <div class="row selected"><span class="dot"></span><span>Just now</span></div>
+            <div class="row"><span class="dot"></span><span>Yesterday</span></div>
+            <div class="row"><span class="dot"></span><span>Micronaut Sketchbook</span></div>
+            <div class="row"><span class="dot"></span><span>Quantum Dreams</span></div>
+          </div>
+          <div class="panel">
+            <h2>ASSET BROWSER</h2>
+            <div class="search">Search assets...</div>
+            <div class="tabs">
+              <span class="tab active">All</span>
+              <span class="tab">Samples</span>
+              <span class="tab">Instruments</span>
+            </div>
+            <div class="folder">&gt; Drums</div>
+            <div class="folder">&gt; Textures</div>
+            <div class="folder">&gt; Samples</div>
+            <div class="folder">&gt; Synths</div>
+            <div class="folder">&gt; Pads</div>
+            <div class="folder">&gt; Plucks</div>
+          </div>
+        </section>
+        <section class="column center">
+          <div class="panel">
+            <div class="arrangement">
+              <span class="clip" style="left: 2%; top: 48px; width: 16%; background: #8053e8"></span>
+              <span class="clip" style="left: 22%; top: 48px; width: 18%; background: #8053e8"></span>
+              <span class="clip" style="left: 44%; top: 48px; width: 17%; background: #8053e8"></span>
+              <span class="clip" style="left: 3%; top: 96px; width: 24%; background: #d63cb5"></span>
+              <span class="clip" style="left: 30%; top: 96px; width: 18%; background: #d63cb5"></span>
+              <span class="clip" style="left: 54%; top: 96px; width: 24%; background: #d63cb5"></span>
+              <span class="clip" style="left: 2%; top: 144px; width: 46%; background: #339ce5"></span>
+              <span class="clip" style="left: 2%; top: 192px; width: 28%; background: #2bc7bc"></span>
+              <span class="clip" style="left: 34%; top: 192px; width: 36%; background: #2bc7bc"></span>
+              <span class="clip" style="left: 2%; top: 240px; width: 88%; background: #46d47f"></span>
+              <span class="playhead"></span>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="piano">
+              <div class="piano-tools">
+                <span class="button">Add</span>
+                <span class="button">Delete</span>
+                <span class="button">Duplicate</span>
+                <span class="button">Quant</span>
+              </div>
+              <div class="keys">
+                <div>A5</div>
+                <div>F#5</div>
+                <div>D#5</div>
+                <div>C5</div>
+              </div>
+              <div class="grid">
+                <span class="note" style="left: 7%; top: 170px; width: 12%"></span>
+                <span class="note" style="left: 22%; top: 146px; width: 10%"></span>
+                <span class="note" style="left: 37%; top: 122px; width: 9%"></span>
+                <span class="note" style="left: 54%; top: 146px; width: 14%"></span>
+                <span class="note" style="left: 73%; top: 98px; width: 16%"></span>
+                <span class="playhead"></span>
+              </div>
+              <div class="velocity">
+                <i style="height: 22px"></i>
+                <i style="height: 34px"></i>
+                <i style="height: 26px"></i>
+                <i style="height: 38px"></i>
+                <i style="height: 18px"></i>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="column right">
+          <div class="panel">
+            <h2>CONTROL</h2>
+            <p>The wasm app uses shared Orbifold state when WebGPU starts. This DOM fallback appears only when the browser runtime cannot start.</p>
+            <div class="card"><strong>MIDI</strong><span>Web MIDI input is available in supported browsers</span></div>
+            <div class="card"><strong>Audio</strong><span>Web Audio uses the shared synth engine when wasm starts</span></div>
+            <div class="card"><strong>Files</strong><span>Project, scale, and key-map files use browser APIs</span></div>
+            <div class="card"><strong>Sessions</strong><span>Browser settings and project state persist through localStorage</span></div>
+            <div class="card"><strong>Assets</strong><span>WAV sample imports persist through IndexedDB</span></div>
+            <div class="card"><strong>Pages</strong><span>Built from dist/</span></div>
+          </div>
+        </section>
+      </main>
+      <footer class="footer">
+        <span>Voices 0  Active 0</span>
+        <span>Static fallback shown until Orbifold wasm/WebGPU startup succeeds</span>
+      </footer>
+    </div>
+    <canvas id="orbifold-canvas"></canvas>
+    <div id="orbifold-status">Loading Orbifold web app...</div>
+    <script type="module">
+      import init, { start_orbifold } from "./pkg/orbifold_web.js";
+
+      const status = document.getElementById("orbifold-status");
+      const startupTimeoutMs = 12000;
+      let runtimeReady = false;
+      window.orbifoldRuntimeReady = (metrics) => {
+        runtimeReady = true;
+        window.clearTimeout(startupTimeout);
+        document.body.classList.add("runtime-ready");
+        document.body.classList.remove("runtime-failed");
+        document.body.dataset.orbifoldFrameCount = String(metrics.frameCount ?? 0);
+        document.body.dataset.orbifoldViewportWidth = String(metrics.viewportWidth ?? 0);
+        document.body.dataset.orbifoldViewportHeight = String(metrics.viewportHeight ?? 0);
+        if (status) {
+          status.textContent = "";
+        }
+      };
+      const startupTimeout = window.setTimeout(() => {
+        if (runtimeReady) {
+          return;
+        }
+        document.body.classList.add("runtime-failed");
+        if (status) {
+          status.textContent =
+            "Orbifold WebGPU runtime is still starting or unavailable in this browser. Showing static fallback instead.";
+        }
+      }, startupTimeoutMs);
+
+      try {
+        await init();
+        await start_orbifold();
+        if (status) {
+          status.textContent = "Orbifold web runtime started; waiting for first frame...";
+        }
+      } catch (error) {
+        runtimeReady = true;
+        window.clearTimeout(startupTimeout);
+        document.body.classList.add("runtime-failed");
+        console.error(error);
+        if (status) {
+          status.textContent =
+            "Orbifold WebGPU runtime unavailable in this browser. Showing static fallback instead.";
+        }
+      }
+    </script>
+  </body>
+</html>

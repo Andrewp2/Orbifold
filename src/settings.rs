@@ -18,6 +18,14 @@ pub(crate) struct AppSettings {
     pub(crate) root_midi: i32,
     pub(crate) base_freq: f32,
     pub(crate) ui_scale: f32,
+    pub(crate) show_asset_browser: bool,
+    pub(crate) show_scale_browser: bool,
+    pub(crate) show_clip_panel: bool,
+    pub(crate) layout_left_width: Option<f32>,
+    pub(crate) layout_track_width: Option<f32>,
+    pub(crate) layout_right_width: Option<f32>,
+    pub(crate) layout_bottom_height: Option<f32>,
+    pub(crate) layout_browser_split_height: Option<f32>,
     pub(crate) master_gain: f32,
     pub(crate) attack_ms: f32,
     pub(crate) release_ms: f32,
@@ -44,6 +52,14 @@ impl Default for AppSettings {
             root_midi: 69,
             base_freq: 440.0,
             ui_scale: 1.0,
+            show_asset_browser: true,
+            show_scale_browser: false,
+            show_clip_panel: true,
+            layout_left_width: None,
+            layout_track_width: None,
+            layout_right_width: None,
+            layout_bottom_height: None,
+            layout_browser_split_height: None,
             master_gain: synth.master_gain,
             attack_ms: synth.attack_ms,
             release_ms: synth.release_ms,
@@ -132,7 +148,7 @@ impl AppSettings {
         self.delay_time_ms = settings.delay_time_ms;
     }
 
-    fn to_text(&self) -> String {
+    pub(crate) fn to_text(&self) -> String {
         let mut out = String::new();
         push_optional(
             &mut out,
@@ -153,6 +169,18 @@ impl AppSettings {
         out.push_str(&format!("root_midi={}\n", self.root_midi));
         out.push_str(&format!("base_freq={}\n", self.base_freq));
         out.push_str(&format!("ui_scale={}\n", self.ui_scale));
+        out.push_str(&format!("show_asset_browser={}\n", self.show_asset_browser));
+        out.push_str(&format!("show_scale_browser={}\n", self.show_scale_browser));
+        out.push_str(&format!("show_clip_panel={}\n", self.show_clip_panel));
+        push_optional_f32(&mut out, "layout_left_width", self.layout_left_width);
+        push_optional_f32(&mut out, "layout_track_width", self.layout_track_width);
+        push_optional_f32(&mut out, "layout_right_width", self.layout_right_width);
+        push_optional_f32(&mut out, "layout_bottom_height", self.layout_bottom_height);
+        push_optional_f32(
+            &mut out,
+            "layout_browser_split_height",
+            self.layout_browser_split_height,
+        );
         out.push_str(&format!("master_gain={}\n", self.master_gain));
         out.push_str(&format!("attack_ms={}\n", self.attack_ms));
         out.push_str(&format!("release_ms={}\n", self.release_ms));
@@ -184,7 +212,7 @@ impl AppSettings {
         out
     }
 
-    fn from_text(data: &str) -> Result<Self, String> {
+    pub(crate) fn from_text(data: &str) -> Result<Self, String> {
         let mut settings = Self::default();
         settings.scale_library.clear();
         settings.recent_projects.clear();
@@ -205,6 +233,24 @@ impl AppSettings {
                 "root_midi" => settings.root_midi = parse_i32(value, key)?,
                 "base_freq" => settings.base_freq = parse_positive_f32(value, key)?,
                 "ui_scale" => settings.ui_scale = parse_ui_scale(value, key)?,
+                "show_asset_browser" => settings.show_asset_browser = parse_bool(value, key)?,
+                "show_scale_browser" => settings.show_scale_browser = parse_bool(value, key)?,
+                "show_clip_panel" => settings.show_clip_panel = parse_bool(value, key)?,
+                "layout_left_width" => {
+                    settings.layout_left_width = parse_optional_positive_f32(value, key)?
+                }
+                "layout_track_width" => {
+                    settings.layout_track_width = parse_optional_positive_f32(value, key)?
+                }
+                "layout_right_width" => {
+                    settings.layout_right_width = parse_optional_positive_f32(value, key)?
+                }
+                "layout_bottom_height" => {
+                    settings.layout_bottom_height = parse_optional_positive_f32(value, key)?
+                }
+                "layout_browser_split_height" => {
+                    settings.layout_browser_split_height = parse_optional_positive_f32(value, key)?
+                }
                 "master_gain" => settings.master_gain = parse_non_negative_f32(value, key)?,
                 "attack_ms" => settings.attack_ms = parse_non_negative_f32(value, key)?,
                 "release_ms" => settings.release_ms = parse_non_negative_f32(value, key)?,
@@ -286,6 +332,12 @@ fn push_optional(out: &mut String, key: &str, value: Option<&str>) {
     out.push('\n');
 }
 
+fn push_optional_f32(out: &mut String, key: &str, value: Option<f32>) {
+    if let Some(value) = value {
+        out.push_str(&format!("{key}={value}\n"));
+    }
+}
+
 fn optional_string(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
@@ -312,6 +364,14 @@ fn parse_positive_f32(value: &str, key: &str) -> Result<f32, String> {
 fn parse_ui_scale(value: &str, key: &str) -> Result<f32, String> {
     let value = parse_positive_f32(value, key)?;
     Ok(value.clamp(0.75, 2.0))
+}
+
+fn parse_optional_positive_f32(value: &str, key: &str) -> Result<Option<f32>, String> {
+    if value.trim().is_empty() {
+        Ok(None)
+    } else {
+        parse_positive_f32(value, key).map(Some)
+    }
 }
 
 fn parse_non_negative_f32(value: &str, key: &str) -> Result<f32, String> {
@@ -373,6 +433,14 @@ mod tests {
             root_midi: 60,
             base_freq: 261.6256,
             ui_scale: 1.25,
+            show_asset_browser: false,
+            show_scale_browser: true,
+            show_clip_panel: false,
+            layout_left_width: Some(310.0),
+            layout_track_width: Some(230.0),
+            layout_right_width: Some(340.0),
+            layout_bottom_height: Some(420.0),
+            layout_browser_split_height: Some(180.0),
             master_gain: 0.5,
             attack_ms: 12.0,
             release_ms: 250.0,

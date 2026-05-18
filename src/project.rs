@@ -2,16 +2,16 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::midi::MidiEvent;
 use crate::synth::{SynthSettings, Waveform};
+use crate::time::AppInstant;
 
 pub(crate) type SharedMusicProject = Arc<Mutex<MusicProject>>;
 
 const DEFAULT_BPM: f32 = 120.0;
 const DEFAULT_LOOP_BEATS: f32 = 16.0;
-const MIN_NOTE_BEATS: f32 = 0.0625;
+pub(crate) const MIN_NOTE_BEATS: f32 = 0.0625;
 pub(crate) const PLAYBACK_NOTE_BASE: u32 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,7 +101,7 @@ pub(crate) struct Transport {
     pub(crate) quantize_grid: QuantizeGrid,
     pub(crate) quantize_on_record: bool,
     pub(crate) metronome_enabled: bool,
-    started_at: Option<Instant>,
+    started_at: Option<AppInstant>,
     last_position_beats: f32,
 }
 
@@ -158,7 +158,7 @@ impl Default for MusicProject {
 }
 
 impl MusicProject {
-    pub(crate) fn play(&mut self, now: Instant) {
+    pub(crate) fn play(&mut self, now: AppInstant) {
         self.transport.playing = true;
         self.transport.recording = false;
         self.transport.started_at = Some(now);
@@ -166,7 +166,7 @@ impl MusicProject {
     }
 
     #[cfg(test)]
-    pub(crate) fn pause(&mut self, now: Instant) {
+    pub(crate) fn pause(&mut self, now: AppInstant) {
         self.finish_pending_notes(now);
         self.transport.last_position_beats = self.current_position_beats(now);
         self.transport.playing = false;
@@ -174,7 +174,7 @@ impl MusicProject {
         self.transport.started_at = None;
     }
 
-    pub(crate) fn seek(&mut self, position_beats: f32, now: Instant) {
+    pub(crate) fn seek(&mut self, position_beats: f32, now: AppInstant) {
         if self.transport.recording {
             self.finish_pending_notes(now);
             self.transport.recording = false;
@@ -185,7 +185,7 @@ impl MusicProject {
         }
     }
 
-    pub(crate) fn stop(&mut self, now: Instant) {
+    pub(crate) fn stop(&mut self, now: AppInstant) {
         self.finish_pending_notes(now);
         self.transport.playing = false;
         self.transport.recording = false;
@@ -193,7 +193,7 @@ impl MusicProject {
         self.transport.last_position_beats = 0.0;
     }
 
-    pub(crate) fn start_recording(&mut self, now: Instant) {
+    pub(crate) fn start_recording(&mut self, now: AppInstant) {
         if !self.transport.overdub {
             self.clip.notes.clear();
             self.next_note_id = 1;
@@ -205,7 +205,26 @@ impl MusicProject {
         self.clear_pending_recording_state();
     }
 
-    pub(crate) fn stop_recording(&mut self, now: Instant) {
+    pub(crate) fn seed_recording_state(
+        &mut self,
+        held_notes: &[MidiEvent],
+        sustain_down: bool,
+        now: AppInstant,
+    ) {
+        if !self.transport.recording {
+            return;
+        }
+        self.sustain_down = sustain_down;
+        for event in held_notes {
+            if event.is_note_on() {
+                let mut event = event.clone();
+                event.at = now;
+                self.record_midi_event(&event);
+            }
+        }
+    }
+
+    pub(crate) fn stop_recording(&mut self, now: AppInstant) {
         self.finish_pending_notes(now);
         self.transport.recording = false;
     }
@@ -220,7 +239,7 @@ impl MusicProject {
         true
     }
 
-    pub(crate) fn current_position_beats(&self, now: Instant) -> f32 {
+    pub(crate) fn current_position_beats(&self, now: AppInstant) -> f32 {
         let Some(started_at) = self.transport.started_at else {
             return self.transport.last_position_beats;
         };
@@ -400,10 +419,14 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
-        note.duration_beats = duration_beats.clamp(
+        let duration_beats = duration_beats.clamp(
             MIN_NOTE_BEATS,
             self.transport.loop_beats.max(MIN_NOTE_BEATS),
         );
+        if (duration_beats - note.duration_beats).abs() <= f32::EPSILON {
+            return false;
+        }
+        note.duration_beats = duration_beats;
         true
     }
 
@@ -414,10 +437,16 @@ impl MusicProject {
         let loop_beats = self.transport.loop_beats.max(MIN_NOTE_BEATS);
         let end_beats = note.start_beats + note.duration_beats;
         let start_beats = wrap_beat(start_beats, loop_beats);
-        note.start_beats = start_beats;
-        note.duration_beats = (end_beats - start_beats)
+        let duration_beats = (end_beats - start_beats)
             .rem_euclid(loop_beats)
             .clamp(MIN_NOTE_BEATS, loop_beats);
+        if (start_beats - note.start_beats).abs() <= f32::EPSILON
+            && (duration_beats - note.duration_beats).abs() <= f32::EPSILON
+        {
+            return false;
+        }
+        note.start_beats = start_beats;
+        note.duration_beats = duration_beats;
         self.sort_clip_notes();
         true
     }
@@ -426,7 +455,11 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
-        note.velocity = velocity.min(127);
+        let velocity = velocity.min(127);
+        if note.velocity == velocity {
+            return false;
+        }
+        note.velocity = velocity;
         true
     }
 
@@ -434,13 +467,40 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
+        let raw_note = musical_note.clamp(0, 127) as u8;
+        if note.musical_note == musical_note
+            && (note.freq - freq).abs() <= f32::EPSILON
+            && note.raw_note == raw_note
+            && note.key_index == -1
+            && !note.mapped_from_lumatone
+        {
+            return false;
+        }
         note.musical_note = musical_note;
         note.freq = freq;
-        note.raw_note = musical_note.clamp(0, 127) as u8;
+        note.raw_note = raw_note;
         note.key_index = -1;
         note.mapped_from_lumatone = false;
         self.sort_clip_notes();
         true
+    }
+
+    pub(crate) fn retune_clip_notes(
+        &mut self,
+        mut frequency_for_note: impl FnMut(i32) -> Option<f32>,
+    ) -> usize {
+        let mut retuned = 0;
+        for note in &mut self.clip.notes {
+            let Some(freq) = frequency_for_note(note.musical_note) else {
+                continue;
+            };
+            if (note.freq - freq).abs() <= f32::EPSILON {
+                continue;
+            }
+            note.freq = freq;
+            retuned += 1;
+        }
+        retuned
     }
 
     pub(crate) fn set_note_start_and_pitch(
@@ -453,10 +513,21 @@ impl MusicProject {
         let Some(note) = self.clip.notes.iter_mut().find(|note| note.id == note_id) else {
             return false;
         };
-        note.start_beats = wrap_beat(start_beats, self.transport.loop_beats);
+        let start_beats = wrap_beat(start_beats, self.transport.loop_beats);
+        let raw_note = musical_note.clamp(0, 127) as u8;
+        if (note.start_beats - start_beats).abs() <= f32::EPSILON
+            && note.musical_note == musical_note
+            && (note.freq - freq).abs() <= f32::EPSILON
+            && note.raw_note == raw_note
+            && note.key_index == -1
+            && !note.mapped_from_lumatone
+        {
+            return false;
+        }
+        note.start_beats = start_beats;
         note.musical_note = musical_note;
         note.freq = freq;
-        note.raw_note = musical_note.clamp(0, 127) as u8;
+        note.raw_note = raw_note;
         note.key_index = -1;
         note.mapped_from_lumatone = false;
         self.sort_clip_notes();
@@ -510,7 +581,7 @@ impl MusicProject {
         );
     }
 
-    fn finish_pending_notes(&mut self, now: Instant) {
+    fn finish_pending_notes(&mut self, now: AppInstant) {
         let end = self.current_position_beats(now);
         let pending = std::mem::take(&mut self.pending_notes);
         for note in pending.into_values() {
@@ -520,7 +591,7 @@ impl MusicProject {
         self.sustain_down = false;
     }
 
-    fn finish_sustained_notes(&mut self, now: Instant) {
+    fn finish_sustained_notes(&mut self, now: AppInstant) {
         let end = self.current_position_beats(now);
         let keys = std::mem::take(&mut self.sustained_note_keys);
         for key in keys {
@@ -601,6 +672,7 @@ pub(crate) struct ProjectSnapshot {
 pub(crate) struct ProjectFile {
     pub(crate) scala_path: Option<PathBuf>,
     pub(crate) lumatone_path: Option<PathBuf>,
+    pub(crate) sample_instrument_path: Option<PathBuf>,
     pub(crate) root_midi: i32,
     pub(crate) base_freq: f32,
     pub(crate) synth_settings: SynthSettings,
@@ -613,6 +685,11 @@ impl ProjectFile {
         out.push_str("orbifold_project=1\n");
         push_optional_path(&mut out, "scala_path", self.scala_path.as_ref());
         push_optional_path(&mut out, "lumatone_path", self.lumatone_path.as_ref());
+        push_optional_path(
+            &mut out,
+            "sample_instrument_path",
+            self.sample_instrument_path.as_ref(),
+        );
         out.push_str(&format!("root_midi={}\n", self.root_midi));
         out.push_str(&format!("base_freq={}\n", self.base_freq));
         out.push_str(&format!(
@@ -680,6 +757,7 @@ impl ProjectFile {
         let mut version_seen = false;
         let mut scala_path = None;
         let mut lumatone_path = None;
+        let mut sample_instrument_path = None;
         let mut root_midi = 69;
         let mut base_freq = 440.0;
         let mut synth_settings = SynthSettings::default();
@@ -710,6 +788,7 @@ impl ProjectFile {
                 "orbifold_project" | "microtonal_daw_project" => version_seen = value == "1",
                 "scala_path" => scala_path = optional_path(value),
                 "lumatone_path" => lumatone_path = optional_path(value),
+                "sample_instrument_path" => sample_instrument_path = optional_path(value),
                 "root_midi" => root_midi = parse_i32(value, key)?,
                 "base_freq" => base_freq = parse_positive_f32(value, key)?,
                 "waveform" => {
@@ -749,6 +828,7 @@ impl ProjectFile {
         Ok(Self {
             scala_path,
             lumatone_path,
+            sample_instrument_path,
             root_midi,
             base_freq,
             synth_settings,
@@ -897,9 +977,10 @@ fn parse_bool(value: &str, key: &str) -> Result<bool, String> {
 mod tests {
     use super::*;
     use crate::midi::MidiEvent;
-    use std::time::{Duration, Instant};
+    use crate::time::AppInstant;
+    use std::time::Duration;
 
-    fn note_event(status: u8, note: u8, velocity: u8, at: Instant) -> MidiEvent {
+    fn note_event(status: u8, note: u8, velocity: u8, at: AppInstant) -> MidiEvent {
         MidiEvent {
             raw_status: status,
             status: status & 0xF0,
@@ -922,7 +1003,7 @@ mod tests {
         let mut project = MusicProject::default();
         project.transport.quantize_grid = QuantizeGrid::Sixteenth;
         project.transport.quantize_on_record = true;
-        let start = Instant::now();
+        let start = AppInstant::now();
         project.start_recording(start);
         project.record_midi_event(&note_event(
             0x90,
@@ -941,7 +1022,7 @@ mod tests {
     fn recorder_holds_note_until_sustain_releases() {
         let mut project = MusicProject::default();
         project.transport.quantize_on_record = false;
-        let start = Instant::now();
+        let start = AppInstant::now();
         project.start_recording(start);
 
         project.record_midi_event(&note_event(0x90, 60, 100, start));
@@ -965,7 +1046,7 @@ mod tests {
     fn transport_pause_preserves_position_and_stop_resets() {
         let mut project = MusicProject::default();
         project.transport.bpm = 120.0;
-        let start = Instant::now();
+        let start = AppInstant::now();
         let one_beat_later = start + Duration::from_millis(500);
         let two_beats_later = start + Duration::from_millis(1_000);
 
@@ -1082,6 +1163,58 @@ mod tests {
     }
 
     #[test]
+    fn clip_note_setters_report_noops_without_mutating() {
+        let mut project = MusicProject::default();
+        let note_id = project.add_note(2.0, 1.0, 60, 96, 261.63);
+
+        assert!(!project.set_note_duration(note_id, 1.0));
+        assert!(!project.set_note_start_preserving_end(note_id, 2.0));
+        assert!(!project.set_note_velocity(note_id, 96));
+        assert!(!project.set_note_pitch(note_id, 60, 261.63));
+        assert!(!project.set_note_start_and_pitch(note_id, 2.0, 60, 261.63));
+
+        let note = project.note_by_id(note_id).expect("note should exist");
+        assert_eq!(note.start_beats, 2.0);
+        assert_eq!(note.duration_beats, 1.0);
+        assert_eq!(note.velocity, 96);
+        assert_eq!(note.musical_note, 60);
+        assert_eq!(note.key_index, -1);
+        assert!(!note.mapped_from_lumatone);
+
+        let note = project
+            .clip
+            .notes
+            .iter_mut()
+            .find(|note| note.id == note_id)
+            .expect("note should exist");
+        note.key_index = 42;
+        note.mapped_from_lumatone = true;
+        assert!(project.set_note_pitch(note_id, 60, 261.63));
+        let note = project.note_by_id(note_id).expect("note should exist");
+        assert_eq!(note.key_index, -1);
+        assert!(!note.mapped_from_lumatone);
+    }
+
+    #[test]
+    fn retune_clip_notes_updates_only_changed_frequencies() {
+        let mut project = MusicProject::default();
+        let first = project.add_note(0.0, 1.0, 60, 96, 261.63);
+        let second = project.add_note(1.0, 1.0, 64, 96, 329.63);
+
+        assert_eq!(
+            project.retune_clip_notes(|note| match note {
+                60 => Some(523.25),
+                64 => Some(329.63),
+                _ => None,
+            }),
+            1
+        );
+
+        assert_eq!(project.note_by_id(first).unwrap().freq, 523.25);
+        assert_eq!(project.note_by_id(second).unwrap().freq, 329.63);
+    }
+
+    #[test]
     fn project_file_round_trips_notes_and_transport() {
         let mut project = MusicProject::default();
         project.transport.bpm = 96.0;
@@ -1102,6 +1235,7 @@ mod tests {
         let file = ProjectFile {
             scala_path: Some(PathBuf::from("scale.scl")),
             lumatone_path: Some(PathBuf::from("classic.ltn")),
+            sample_instrument_path: Some(PathBuf::from("audio_assets/samples/kick.wav")),
             root_midi: 60,
             base_freq: 261.63,
             synth_settings: SynthSettings::default(),

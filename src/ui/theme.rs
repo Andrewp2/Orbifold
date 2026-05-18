@@ -23,3 +23,7 @@ pub(super) const fn muted() -> ColorRgba {
 pub(super) const fn accent() -> ColorRgba {
     color(64, 211, 219)
 }
+
+pub(super) const fn clip_color() -> ColorRgba {
+    color(132, 81, 238)
+}

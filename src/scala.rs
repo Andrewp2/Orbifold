@@ -8,7 +8,7 @@ pub(crate) fn parse_scala(path: &Path) -> Result<ScalaScale, String> {
     parse_scala_contents(&data)
 }
 
-fn parse_scala_contents(data: &str) -> Result<ScalaScale, String> {
+pub(crate) fn parse_scala_contents(data: &str) -> Result<ScalaScale, String> {
     let mut lines = data
         .lines()
         .map(str::trim)

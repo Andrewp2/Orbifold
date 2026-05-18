@@ -1,4 +1,6 @@
 /target/
+/dist/
 /orbifold_settings.txt
 /microtonal_daw_settings.txt
+/orbifold_autosave.orbifold
 /screenshots/*.png

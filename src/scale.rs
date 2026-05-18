@@ -33,6 +33,33 @@ impl Default for ScaleState {
 }
 
 impl ScaleState {
+    pub(crate) fn musical_note_for_midi_note(&self, midi_note: i32) -> i32 {
+        if self.scale.steps.is_empty() {
+            return midi_note;
+        }
+        let target_cents = (midi_note - self.root_midi) as f32 * 100.0;
+        let scale_len = self.scale.steps.len() as i32;
+        let base_octave = (target_cents as i32).div_euclid(1200);
+        let mut best_note = midi_note;
+        let mut best_error = f32::INFINITY;
+
+        for octave in (base_octave - 1)..=(base_octave + 1) {
+            for (degree, ratio) in self.scale.steps.iter().copied().enumerate() {
+                if !ratio.is_finite() || ratio <= 0.0 {
+                    continue;
+                }
+                let degree_cents = 1200.0 * ratio.log2() + octave as f32 * 1200.0;
+                let error = (degree_cents - target_cents).abs();
+                if error < best_error {
+                    best_error = error;
+                    best_note = self.root_midi + octave * scale_len + degree as i32;
+                }
+            }
+        }
+
+        best_note
+    }
+
     pub(crate) fn note_info(&self, note: i32) -> Option<ScaleNoteInfo> {
         if self.scale.steps.is_empty() {
             return None;
@@ -82,5 +109,37 @@ mod tests {
 
         assert_eq!(info.degree, 11);
         assert_eq!(info.octave, -1);
+    }
+
+    #[test]
+    fn midi_note_mapping_keeps_standard_twelve_tet_identity() {
+        let state = ScaleState::default();
+
+        for note in [48, 60, 69, 72, 84] {
+            assert_eq!(state.musical_note_for_midi_note(note), note);
+        }
+    }
+
+    #[test]
+    fn midi_note_mapping_approximates_chromatic_keys_in_large_edo_scales() {
+        let state = ScaleState {
+            scale: ScalaScale {
+                description: "31-EDO".to_string(),
+                steps: (0..31).map(|i| 2.0_f32.powf(i as f32 / 31.0)).collect(),
+            },
+            root_midi: 69,
+            base_freq: 440.0,
+        };
+
+        assert_eq!(state.musical_note_for_midi_note(72), 77);
+        assert_eq!(state.musical_note_for_midi_note(76), 87);
+        assert_eq!(state.musical_note_for_midi_note(79), 95);
+
+        let c5 = state.note_info(77).expect("mapped note should resolve");
+        let e5 = state.note_info(87).expect("mapped note should resolve");
+        let g5 = state.note_info(95).expect("mapped note should resolve");
+        assert!((c5.cents_from_root - 309.6774).abs() < 0.01);
+        assert!((e5.cents_from_root - 696.7742).abs() < 0.01);
+        assert!((g5.cents_from_root - 1006.4516).abs() < 0.01);
     }
 }

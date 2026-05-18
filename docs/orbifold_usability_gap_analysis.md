@@ -28,6 +28,8 @@ Progress since this gap list was first written:
   hardware-derived settings from that no-probe startup.
 - Startup audio warnings are preserved alongside later MIDI warnings instead of
   being overwritten during app initialization.
+- Default audio output name-read failures now surface as explicit audio
+  unavailable errors instead of silently connecting an output named `Unknown`.
 - Sound-producing controls such as A4 test are disabled when no audio stream is
   connected, while `All Off` remains available as a panic/reset action because
   it also clears live MIDI held-note and sustain state.
@@ -36,15 +38,38 @@ Progress since this gap list was first written:
   saved device.
 - The README now describes the Operad UI and current prototype limits instead of
   the old egui/menu workflow.
-- The fake recent-project list has been replaced by a current-project card.
+- A first-run guide now covers launch, setup-required state, audio/MIDI setup,
+  scale and Lumatone loading, recording, piano-roll editing, save/recovery,
+  visual sizing, and basic troubleshooting for early testers.
+- `docs/troubleshooting.md` now covers deeper startup-probe, logging, audio,
+  MIDI, settings, project, autosave, and bug-report diagnostics for early
+  testers.
+- `docs/lumatone_setup.md` now explains the current scale/key-map distinction,
+  factory `.ltn` presets, user key-map loading, MIDI setup, mapping capture, and
+  Lumatone workflow limitations.
+- `docs/known_limitations.md` now gives testers a single place to check current
+  prototype limits across composition, piano-roll editing, audio/MIDI, assets,
+  tuning/Lumatone, files, UI/help, release, and screenshot reporting.
+- `docs/keyboard_shortcuts.md` now includes workflow examples for recording,
+  adding and shaping notes, undo/redo, copy/paste at the playhead, zoom/readable
+  views, and safe save/open behavior, rather than only listing shortcut chords.
+- `docs/lumatone_troubleshooting.md` now covers advanced Lumatone setup checks,
+  manual scale/key-map validation, channel-filter mistakes, mapping capture,
+  common `.ltn` parse errors, wrong-note diagnosis, and bug-report evidence.
+- Loaded Lumatone key maps are now only applied to MIDI inputs whose port names
+  identify them as Lumatone devices. Regular MIDI keyboards keep chromatic
+  note-to-scale mapping even when a key map is loaded, and the control panel
+  reports `Key map inactive` for that state.
+- The fake recent-project list has been replaced by real recent-project state
+  and compact session-strip actions that only appear when useful.
 - Unsupported track Add/Mute/Solo controls are visually disabled until there is a
   real multi-track engine behind them.
 - The fake multi-track arrangement preview has been replaced by the current
-  single-clip surface: one `Current Clip` lane, an empty recorded-clip state, and
+  single-clip surface: one `Current Clip` lane, an `Empty clip` arrangement state, and
   no preview notes in the piano roll before recording.
 - A basic project dirty state now exists. Recording, clip edits, tuning/keymap
   changes, transport loop changes, synth changes, undo, and redo mark the project
-  dirty; save/load mark it clean; and the project panel reports `No file`,
+  dirty; save/load mark it clean; and project state helpers report `No file`,
   `Unsaved`, `Unsaved changes`, or `Saved`.
 - The Operad host no longer applies DPI scaling twice. The latest screenshot
   fits the full workspace at 2x scale instead of showing a cropped, oversized
@@ -53,17 +78,28 @@ Progress since this gap list was first written:
   beats instead of falsely calling the value bars, and removes a decorative meter
   that collided with controls.
 - The default layout now gives more horizontal space to the arrangement and
-  piano roll by narrowing the project, clip, and control columns.
+  piano roll by narrowing the left browser, clip, and control columns.
+- Workspace resize handles now have wider hit targets and larger visible grips,
+  making the left/clip/right/bottom splitters easier to find and grab at compact
+  and 4K sizes.
 - Disabled placeholder track controls (`+ Track`, mute, and solo) have been
   removed from the visible single-clip UI.
 - Project save now writes through a temporary file in the project directory and
   creates a `.bak` copy before overwriting an existing project file.
+- Project saves that succeed but fail to clear a stale autosave now keep the
+  saved status visible while also logging and recording the autosave cleanup
+  failure in diagnostics.
 - Piano-roll notes can now be dragged to change start beat and pitch, with the
   drag grouped into a single undo history entry.
 - Piano-roll note right edges can now be dragged to resize duration, also grouped
   into a single undo history entry.
 - Piano-roll note left edges can now be dragged to change the note start while
   preserving the note end, also grouped into a single undo history entry.
+- Piano-roll note edge drags now honor the active snap grid, while `Snap off`
+  keeps edge resizing free.
+- Snapped direct note edits that resolve to the note's current start, length,
+  pitch, or velocity now remain true no-ops instead of dirtying the project or
+  enabling Undo for no visible change.
 - Piano-roll velocity bars can now be clicked or dragged in the velocity lane,
   with each gesture grouped into a single undo history entry.
 - The arrangement and piano-roll editors now render the active quantize
@@ -108,37 +144,71 @@ Progress since this gap list was first written:
 - Copy, quantize, velocity, and pitch edits now share that stale-selection
   behavior, and the rendered clip-note toolbar disables note-specific controls
   when the selected note ID no longer exists in the clip.
-- The project panel now has an explicit `Save As` action, `Ctrl`/`Cmd+Shift+S`
+- File actions now include an explicit `Save As` action, `Ctrl`/`Cmd+Shift+S`
   routes to the same workflow, and Save As has a regression test proving it
   writes a new project file without overwriting the original saved file.
+- Top-bar Save, Save As, Open, Scale, and Keys actions now have pointer-level
+  regression coverage that proves they queue pending file dialogs with visible
+  opening statuses instead of blocking the UI action path.
+- Invalid BPM commits and stale library/key-map selection actions now use the
+  shared logged diagnostic path instead of unlogged footer-only statuses.
+- Recoverable project load and autosave recovery warnings, such as missing
+  referenced sample instruments or key maps, now preserve the successful
+  load/recover status while also recording the warning in diagnostics.
+- The default autosave recovery file is now included in `.gitignore`, matching
+  the existing settings and screenshot ignores so local recovery state is less
+  likely to leak into release artifacts.
 - Re-loading the already-active Scala file through file-open style paths, or
   the already-active Lumatone key map through edit paths, now reports that it is
   already loaded instead of creating unsaved project state.
 - No-op quantize and minimum-length note resize commands now detect the no-op
   before touching undo history, so they no longer clear available redo edits.
+- The compact top transport now spaces the tempo controls without overlapping
+  the loop/quantize controls, and the visible tempo buttons say `BPM -` and
+  `BPM +` instead of anonymous plus/minus glyphs.
+- The top-bar BPM value is now an editable numeric field: typing a tempo and
+  pressing Enter commits it, while Escape cancels without dirtying the project.
+- Wider top-transport layouts now label loop-length controls as `Loop -` and
+  `Loop +`, so loop duration editing no longer relies on anonymous plus/minus
+  buttons beside the beats readout.
+- The top-bar settings-save action now expands from `Prefs` to `Save Pref` to
+  `Save Settings` as horizontal space increases, avoiding unnecessary
+  abbreviation on wide displays.
+- The top quantize-grid control now labels itself as `Q1/16` at compact sizes
+  and `Grid 1/16` when there is room, instead of presenting a bare value with no
+  control context.
+- The piano-roll option strip now uses the same explicit `Q1/16` grid label,
+  so its Snap/grid pair is readable without relying on source-order context.
+- The piano-roll option strip now also exposes adjacent previous/next grid
+  buttons around the grid label, so users can move one step coarser or finer
+  without repeatedly cycling through every value.
+- Wide top-bar layouts now expose the same previous/next grid controls around
+  `Grid 1/16`; compact layouts still keep the single cycle button to avoid
+  crowding the transport.
+- The compact all-notes-off action uses the visible label `Panic`, keeping the
+  emergency note reset discoverable without the ambiguous standalone `Off`.
+- The same action now exposes `Panic: all notes off` through accessibility and
+  focus status, instead of relying on a generic fallback label.
 - Saved and opened projects now update a persisted recent-project list, and the
-  project card shows the most recent project when no project file is currently
-  open.
-- The project panel now exposes `Open Recent` when a recent project exists and
-  the current project is clean; it refuses to replace dirty work until the user
-  saves or discards changes.
+  session strip can surface recent-project rows when history is available.
+- The left session strip now shows up to three named recent-project rows. Clean
+  projects can open any visible row directly; dirty projects keep those open
+  actions disabled until the user saves or discards changes.
 - `Open Recent` now prunes missing recent projects, persists the cleaned list,
   and opens the next available project in the same action, so moved/deleted files
-  do not leave a dead one-click action in the project panel.
-- The project panel now shows clickable recent-project rows when there is room,
-  so users can open an older recent project directly instead of only loading the
-  newest saved/opened file.
-- The project panel now has a `Forget` action for the latest recent project,
-  removing it from Orbifold's recent list without deleting the project file.
+  do not leave a dead one-click action in the session strip.
+- The left session strip now keeps per-row `Forget` controls visible when recent
+  project state exists, removing that entry from Orbifold's recent list without
+  deleting the project file.
 - The native window title now includes the project name and an unsaved marker,
-  so saved/dirty state is visible outside the left project panel.
+  so saved/dirty state is visible outside the left browser.
 - Failed project open/parse statuses now name the target file, and failed opens
   leave the current project and recent-project list untouched.
 - Failed autosave write/open/parse/load statuses now name the autosave file, and
   a bad autosave recovery attempt leaves the current project untouched.
-- Autosaves can now be dismissed from the clean project panel, removing stale or
+- Autosaves can now be dismissed from the clean left session strip, removing stale or
   unwanted recovery files without forcing a recover attempt or leaving the
-  project panel stuck in recovery mode.
+  session strip stuck in recovery mode.
 - Startup now sizes the window from the current monitor instead of always opening
   at the old fixed `1400x760` prototype size, so large displays get a much larger
   initial workspace.
@@ -148,8 +218,75 @@ Progress since this gap list was first written:
   the duplicate adjacent text rendering seen in visual QA.
 - Missing audio asset files are marked in the asset browser until Refresh
   removes stale entries and clears stale selection.
+- Orbifold now has a wasm browser entry at `examples/orbifold_web.rs`, a static
+  `web/index.html` fallback shell, a `scripts/build-web.sh dist` build path, and
+  a GitHub Pages workflow. The wasm entry uses shared `AppState` and action
+  dispatch. Browser project open/save uses the same `.orbifold` text format,
+  and browser Scala/key-map loading uses the same `.scl` and `.ltn` parsers as
+  desktop. Browser MIDI input uses Web MIDI where available and feeds the same
+  MIDI handling path as desktop. Browser audio uses Web Audio and the shared
+  synth engine. Browser settings reuse the same plain-text settings format in
+  `localStorage`, and the browser keeps the latest project session there so
+  reloads can restore the current `.orbifold` state. The browser surface now
+  uses the shared Operad document builder, including piano-roll note editing,
+  panel splitters, loop-end drags, viewport thumb drags, and piano-roll wheel
+  navigation. Browser asset import can load WAV samples for preview and
+  sample-instrument use, persists browser-imported bytes in IndexedDB with
+  legacy `localStorage` migration/merge/fallback, and restores them before the
+  saved browser project session so sample instruments survive reloads within
+  browser storage quota. Web UI-scale actions persist the new setting and reload
+  the page so the fixed Operad web runtime scale is reapplied on startup.
+- Browser keyboard shortcuts for file, scale, key-map, asset, and MIDI actions
+  now use the same browser API paths as pointer clicks instead of falling
+  through to desktop file-dialog commands. Browser project open also keeps the
+  dirty-project confirmation gate before launching the picker, and the browser
+  shortcut bridge now includes the `?` shortcut help action plus native-style
+  repeat behavior for arrow note edits.
+- Browser shortcut modifier handling now also matches native for shifted copy,
+  paste, and add-note keys, so `Ctrl`/`Cmd+Shift+C`, `Ctrl`/`Cmd+Shift+V`, and
+  `Shift+N` do not trigger browser-only edit behavior.
+- Browser MIDI connect now matches native stale-device behavior: if the selected
+  browser MIDI input name is no longer present, it reports an error instead of
+  disconnecting the current input and silently opening the first available one.
+- Browser MIDI refresh now treats an empty input list as a successful no-device
+  refresh, matching native setup behavior instead of reporting an error only
+  because the browser returned zero inputs.
+- Asynchronous Web Audio resume and cleanup failures now queue into Orbifold's
+  browser runtime and surface through the same visible error-status path as
+  other device failures instead of remaining console-only messages.
+- Browser audio output listing now checks whether Web Audio is available before
+  advertising `Browser audio`, so browsers without `AudioContext` enter the same
+  setup-required no-audio state as native hosts with no output device.
+- Browser text edit actions now share the native handler for BPM, root note,
+  base frequency, scale search, and asset search, so the web runtime no longer
+  silently ignores Operad `TextEdit` actions for those controls.
+- Browser tab titles now share the native project/dirty-state title formatter,
+  so saved projects, untitled dirty work, and clean sessions report the same
+  title text on native and web.
+- Browser project-session restoration now preserves parse/load errors instead
+  of overwriting them with a successful restored-session status, and failed
+  browser project, Scala, and Lumatone opens no longer write a replacement
+  session snapshot.
+- Browser startup no longer overwrites invalid or unavailable stored settings
+  with fallback defaults; defaults are still written when no browser settings
+  exist yet.
+- Browser startup success statuses for restored assets, restored sessions, and
+  successful browser file loads now append to an existing error status instead
+  of hiding the earlier startup failure.
+- Browser project download now marks the project clean only after the browser
+  download API call succeeds; a thrown or unavailable download path leaves the
+  project dirty and reports a visible error.
+- Browser asset restore now attempts IndexedDB even when old localStorage asset
+  records are malformed, so corrupt legacy storage no longer blocks newer
+  IndexedDB-backed assets from loading.
+- Browser arrangement-ruler and piano-ruler seeking now keep an active drag
+  capture just like native, so long playhead drags continue after the pointer
+  leaves the original ruler hit target.
 - The status bar now fits long path/device/status messages to the available
   footer width instead of letting them run beyond the bar.
+- When startup or screenshot mode accumulates multiple status messages, the
+  footer now shows the latest actionable status first and summarizes earlier
+  messages with a count, instead of reading like a clipped event log.
 - Visible Operad buttons now participate in Tab focus traversal and focused
   buttons activate with Enter. Invisible canvas hit targets stay pointer-only so
   keyboard focus does not disappear into the arrangement, piano-roll grid, or
@@ -206,16 +343,77 @@ Progress since this gap list was first written:
   hard-coded scale.
 - UI zoom also has visible right-panel controls, so users do not have to know
   the keyboard shortcut before making the interface readable.
-- The project panel now has a `New` action. Dirty projects use a two-step
+- The workspace now has visible resize handles between the asset browser, clip
+  panel, main editor, control panel, and piano roll, with persisted sizes and a
+  right-panel layout reset action that also restores default left-browser
+  visibility.
+- Workspace resize handles now preserve the pointer grab offset while dragging
+  and use larger hit areas, so resizing asset, clip, control, and piano-roll
+  panels does not jump on the first drag update.
+- Active note and workspace resize drags now keep receiving updates when the
+  pointer crosses another pointer-edit surface or empty panel space, so dragging
+  does not stop just because the cursor leaves the original hit target.
+- Orbifold now has a regression test for the live-style resize case where the
+  document rebuilds during an active drag and the pointer moves over a visible
+  button; the active drag capture still receives the update.
+- A no-window host-frame regression test now drives raw pointer down/move/up
+  through Operad's document-frame action collection across multiple rebuilt
+  documents, so long resize drags catch stale node-id capture failures.
+- Workspace splitters now have stronger visible gutters and larger grab handles,
+  and the splitter rendering code lives beside the workspace sizing math instead
+  of in the native host module.
+- The current clip color is now shared between the clip panel, arrangement
+  surface, piano-roll notes, and velocity lane, so the same clip no longer
+  changes identity between editors.
+- The clip side panel can now be hidden from the piano-roll option panel, and
+  that view preference persists, so the center editor and piano roll can reclaim
+  the clip panel's horizontal space when the clip summary is not needed.
+- When both Assets and Scales are shown, the left browser now has its own
+  vertical resize handle, the split height is persisted, and taller asset
+  browsers can show more rows instead of being capped at a fixed count.
+- Asset-browser and scale-browser visibility are now saved as view preferences,
+  so hiding either left-panel browser survives restart and does not dirty the
+  project.
+- The arrangement ruler and overview now use the same horizontal time viewport
+  as the piano roll, so piano time zoom/scroll keeps the playhead, visible beat
+  labels, note overview dots, and arrangement seek coordinates in sync.
+- The piano roll now draws small time and pitch viewport indicators, so scroll
+  and zoom state is visible instead of only being implied by changing ruler
+  labels.
+- Those piano-roll viewport indicators are now draggable: the time thumb scrolls
+  the visible beat window, and the pitch thumb scrolls the visible row window.
+- The arrangement and piano roll now draw explicit loop-start and loop-end
+  boundary lines whenever those boundaries are inside the shared visible time
+  viewport.
+- The loop end can now be dragged in either the arrangement ruler or the
+  piano-roll ruler to shorten or extend the loop length, including dragging past
+  the current right edge to grow the loop.
+- The piano-roll option panel now exposes snap as a visible toggle next to the
+  grid value, so users can discover `Snap off`/`Snap on` without knowing the `G`
+  shortcut.
+- Long scale and asset lists now draw lightweight scroll indicators and expose
+  small up/down controls tied to the visible row window, so overflow is
+  discoverable and reachable even before full scroll containers exist.
+- Those scale and asset browser scroll controls, plus mouse-wheel scrolling in
+  tests, now move the visible list window without changing selection, so browsing
+  a long list does not accidentally select or load the row under the scroll
+  gesture.
+- The top bar now has a `New` action. Dirty projects use a two-step
   `Discard?` confirmation before unsaved changes are thrown away.
 - `Open` now uses the same dirty-project confirmation pattern before another
   project can replace unsaved work.
 - Closing the window with unsaved changes now warns first and requires a second
   close request before quitting.
 - `Esc` now cancels pending dirty-project discard confirmations.
-- The project card now shows either the saved project directory or a compact
-  unsaved location hint, making project location state visible without clipping
-  in the default layout.
+- Native piano-roll hit testing, drag state, cursor selection, and action-name
+  parsing now live in `ui/native/piano_interaction.rs`, keeping the host module
+  focused on window/document orchestration while preserving the existing direct
+  edit behavior.
+- Status-bar presentation now lives with the other native presenter helpers
+  instead of inside the Operad host module, reducing one more slice of
+  formatting logic from `ui/native.rs`.
+- Project location helpers now produce either the saved project directory or a
+  compact unsaved location hint without clipping in the default layout.
 - The MIDI device label now distinguishes missing inputs from selected-but-
   disconnected inputs.
 - Mapping capture controls now disable `Stop` and `Clear` unless capture state
@@ -230,11 +428,12 @@ Progress since this gap list was first written:
   or missing-device states instead of relying on ambiguous device names alone.
 - Dirty project edits now write a basic `orbifold_autosave.orbifold` recovery
   file, and saving or returning to a clean project state clears it.
-- When an autosave exists, the project panel now exposes a `Recover` action that
-  loads it as an unsaved project without replacing another dirty project.
-- `Recover` and `Open Recent` can now coexist in the project panel, so a stale or
-  unwanted autosave does not hide the one-click path back to the last saved
-  project.
+- When an autosave exists, the left session strip exposes a `Recover` action
+  above the asset browser, keeping recovery separate from asset management while
+  loading the recovery file as an unsaved project.
+- `Recover` and `Open Recent` can now coexist in the left session strip, so a
+  stale or unwanted autosave does not hide the one-click path back to the last
+  saved project.
 - The recovery row now also exposes `Dismiss` in clean projects, so users can
   explicitly clear stale or malformed autosaves once they decide not to recover
   them.
@@ -262,6 +461,9 @@ Progress since this gap list was first written:
   of showing low-level `key0` debug details.
 - Loading a Lumatone map now reports key count, MIDI-note range, and colored-key
   count in the status line.
+- The control panel now exposes previous/next key-map preset buttons beside the
+  active key-map label, so bundled Lumatone maps can be browsed without opening
+  an OS file dialog.
 - Quantize-on-record is no longer hidden project state: the clip panel now has a
   `Rec quantize` toggle and `Shift+Q` shortcut.
 - Recording mode is now explicit: the transport reports `Replace` or `Overdub`,
@@ -327,8 +529,14 @@ Progress since this gap list was first written:
 - Settings compatibility now has checked-in fixtures for current
   `orbifold_settings.txt` content and legacy `microtonal_daw_settings.txt`
   content, including defaulting behavior for settings older files omitted.
+- `docs/file_formats.md` now documents the current settings, project, autosave,
+  temporary-save, backup, and legacy compatibility formats, with README linkage
+  and regression coverage for the important markers.
 - Settings load/save failures now include the settings path, so fallback-to-
   defaults startup and failed `Save Settings` reports identify the file involved.
+- Startup no longer auto-persists fallback defaults over an unreadable or invalid
+  settings file; the settings load error remains visible, and overwriting the
+  file requires an explicit later settings save.
 - The saved-project render path now has an end-to-end regression test that saves
   a clip, reopens it, builds the Operad surface, confirms the loaded clip state
   is visible, and checks text-overlap safety.
@@ -382,11 +590,16 @@ Progress since this gap list was first written:
 - The compact clip toolbar now uses readable labels such as `Delete`,
   `Duplicate`, `Pitch-`, `Pitch+`, and `Quant` instead of `Del`, `Dup`, `P-`,
   `P+`, and `Q` at the minimum layout.
-- The asset browser's compact tabs now use `Samp` and `Pres`, avoiding clipped
-  `Sam...` and `Pres...` labels at the minimum layout.
+- The asset browser category tabs now use a two-row layout with full labels
+  (`Samples`, `Instruments`, `Presets`, and `Impulses`) at the minimum layout,
+  so the browser no longer depends on unexplained abbreviations.
 - Pointer-through coverage now also includes the right-side control panel:
   scale root/base controls, metronome, UI zoom, waveform, and synth gain are
   clicked through the rendered document and verified against real state.
+- The internal synth waveform row now uses previous/next buttons beside the
+  current waveform label instead of a single opaque `Cycle` button.
+- The synth output row now includes a `Reset` action that restores default synth
+  settings through the same checked settings path as other synth edits.
 - Pointer-through coverage now includes the left browser's scale and asset
   selection buttons, proving rendered list entries and tabs update the real
   selection state.
@@ -414,6 +627,9 @@ Progress since this gap list was first written:
 - Automatic large-monitor scaling now treats 4K-class outputs as 2x UI scale by
   default, while still preserving the minimum logical layout space on small
   windows.
+- The 4K physical-density path now has a regression test tying a 3840x2160
+  surface to the expected 1920x1080 logical layout and checking text-overlap
+  safety at that derived size.
 - Zoom-out scaling now uses the actual sub-1.0 UI scale for logical sizing and
   pointer coordinate conversion, so zooming out expands the logical surface
   instead of rendering/input-mapping as if scale were still 1.0.
@@ -430,6 +646,19 @@ Progress since this gap list was first written:
 - The bottom status bar no longer repeats the MIDI/audio device summary on the
   right side, since the device panel already reports those states and the
   duplicated footer readout made startup look noisy.
+- The bottom status bar now includes the Cargo package version, giving testers a
+  visible version string to report without adding another branded title to the
+  main workspace.
+- The repo now includes a minimal Linux desktop-entry file at
+  `packaging/linux/orbifold.desktop`, with a regression test proving it launches
+  the `orbifold` binary and uses the expected desktop metadata keys.
+- The Linux packaging metadata now includes a matching scalable `orbifold.svg`
+  icon under the hicolor app-icon path, with regression coverage tying the
+  desktop file's `Icon=orbifold` entry to the packaged asset.
+- Release-facing docs now include `CHANGELOG.md` and
+  `docs/release_checklist.md`, with regression coverage that keeps the changelog
+  tied to the current Cargo package version and the checklist tied to the
+  required format, test, lint, screenshot, license, and desktop metadata gates.
 - Automatic startup scans for scales and audio assets now populate the UI
   quietly on success, so startup diagnostics are not cluttered by routine
   `Found ...` or `No assets found` messages. Explicit refresh buttons still
@@ -458,19 +687,64 @@ Progress since this gap list was first written:
 - MIDI and audio device labels now include the selected item position, such as
   `Audio 2/4`, so the existing prev/next controls behave more like a visible
   picker instead of an anonymous cycle button.
+- In the compact control panel, the two device-control rows now keep visible
+  `MIDI` and `Audio` context labels instead of rendering as identical
+  Refresh/Connect rows.
+- The right panel now has a Devices mode with direct MIDI input and audio output
+  picker rows, so users are not limited to blind previous/next cycling when
+  choosing a device.
+- When the Devices panel has more MIDI inputs or audio outputs than visible
+  rows, the picker headings now expose previous/next controls that move the
+  selected row and reveal hidden devices without leaving the panel.
+- The right-panel device entry point now relabels itself to `Setup` when audio
+  or MIDI setup is missing, and opening it reports the missing setup state in
+  status text instead of a generic panel-open message.
+- The right-panel mode buttons now keep stable labels while active: the active
+  setup/device button stays `Setup` or `Devices`, and the active settings button
+  stays `Settings`, instead of highlighting a `Control` label while another
+  panel title is visible.
+- The Devices panel now keeps that setup-required state visible inside the panel
+  with a concise `SETUP REQUIRED` summary, so the warning does not disappear
+  after the status bar changes.
+- Setup-required Devices mode now uses compact MIDI and audio recovery sections,
+  so both Refresh/Connect paths remain visible above the piano roll at the
+  minimum supported layout.
+- Error and startup-failure messages now feed a bounded diagnostic history, and
+  the setup-required Devices panel shows the latest diagnostic when there is
+  room. This gives failures such as audio stream errors a visible place to
+  persist after the status bar changes.
+- The Settings panel now exposes recent diagnostics when errors exist, keeping
+  the normal settings layout uncluttered while giving non-setup failures a
+  durable in-app place to be rediscovered.
+- The Settings diagnostics section now includes a `Clear Diagnostics` action, so
+  resolved startup/device/file errors do not remain as stale warnings forever.
+- Startup now opens the right panel directly in Devices/Setup mode when audio or
+  MIDI setup is incomplete, so the setup path is visible before the user hunts
+  through the control panel.
+- The README now documents the first-run Devices/Setup path, the fact that
+  screenshot mode intentionally skips device probing, and the current workspace
+  splitter behavior for browser, clip, right-panel, piano-roll, and browser
+  section resizing.
+- The Devices panel now also shows concise diagnostics for each backend,
+  distinguishing live, disconnected, selected-but-not-connected, and empty scan
+  states.
 - Startup audio fallback status now explicitly says when a saved output is
   unavailable and Orbifold is trying the system default, rather than only
   reporting the missing saved device.
 - The last-MIDI monitor now names common controller policy directly: sustain
-  pedal events show `sustain on/off`, and pitch-bend messages show centered
-  bend values instead of fake note names.
+  pedal events show `sustain on/off`; pitch bend and non-sustain CC messages
+  say `ignored`, making the current synth policy visible instead of implying
+  hidden modulation support.
 - MIDI input now has a runtime channel filter exposed in the control panel. The
   last-event monitor still shows filtered-out events, but synth playback,
   held-note state, mapping capture, and recording ignore channels outside the
   selected filter. The selected filter is saved and restored with app settings.
-- The transport return-to-start button now says `Start` instead of `Prev`, so
-  the visible label matches its current behavior rather than implying previous
-  clip or marker navigation.
+- The MIDI channel filter row now has previous/next step buttons around the
+  `All`/`Ch N` filter value, so users can move both directions instead of
+  repeatedly cycling through all 17 filter states.
+- The transport return-to-start button now says `Home`, matching the documented
+  keyboard shortcut and avoiding the earlier ambiguity of placing `Start` beside
+  `Play`.
 - The transport record button now says `Record` instead of `Rec`, using the
   available top-bar space for clearer first-run workflow labeling, and switches
   to `Stop Rec` while recording so the toggle action is explicit.
@@ -488,7 +762,7 @@ Progress since this gap list was first written:
   at the playhead while preserving pitch, duration, and velocity; paste is one
   undoable project edit.
 - The `Home` key now performs the same return-to-start transport action as the
-  visible `Start` button. That action seeks to the loop start without stopping
+  visible `Home` button. That action seeks to the loop start without stopping
   playback, while `Stop` still stops playback, and this path is covered so it
   does not dirty a clean project when only the playhead position changes.
 - `G` now toggles piano-roll snap off and back to the previous non-off grid
@@ -499,6 +773,22 @@ Progress since this gap list was first written:
   undoable and leaves other notes untouched.
 - Selecting a piano-roll note now auditions it briefly, and dragging a note to a
   new pitch auditions the new pitch without replacing the edit/selection status.
+- Clicking the piano-roll note ruler now auditions the pitch under the pointer
+  without creating notes or moving the viewport; dragging the same ruler still
+  pans/zooms the pitch view.
+- Existing clip-note frequencies are now retuned when loading a different Scala
+  scale or changing the root/base tuning, so recorded piano-roll notes keep
+  following the active project tuning instead of preserving stale frequencies.
+- Active playback voices and held/sustained MIDI voices now receive non-retrigger
+  retune commands when the scale/root/base changes, so sounding notes follow the
+  new tuning without resetting phase or amplitude.
+- Selecting, adding, pasting, duplicating, nudging, resizing, quantizing, or
+  transposing a clip note now scrolls the piano-roll time and pitch viewport just
+  enough to keep the edited note visible, so successful command edits do not look
+  like no-ops when the viewport was elsewhere.
+- The piano-roll option panel now includes `Fit`, which recenters the visible
+  time and pitch windows around clip notes, or resets to the root/default view
+  when the clip is empty.
 - The clip panel's selected-note summary now includes compact frequency and
   cents context, such as `440.0Hz +0c`, alongside degree, octave, beat, length,
   and velocity.
@@ -509,15 +799,53 @@ Progress since this gap list was first written:
   degree/cents labels for microtonal scales (`d1 +0c`) instead of raw MIDI
   number plus zero-indexed degree; the 31-EDO minimum-layout case has overlap
   coverage.
+- The piano-roll option panel now has a pitch-label mode toggle: 12-TET can
+  switch from note names to scale-degree/cents labels without dirtying the
+  project.
+- Ordinary MIDI keyboard input now maps 12-TET chromatic key positions to the
+  nearest degree of the active tuning, so playing C-E-G in a 31-EDO project
+  produces a recognizable triad instead of adjacent low-numbered 31-EDO degrees.
 - Last-MIDI and capture-event labels now prioritize musician-readable event
   descriptions such as `note C4 (60)` or `cc64 value127` instead of presenting
-  every incoming event as a raw note number.
+  every incoming event as a raw note number. Remapped microtonal MIDI notes show
+  the played key and tuned destination, such as `C5->d9 +310c`.
 - Screenshot writing now performs a pixel-level smoke check before saving,
   rejecting malformed, blank, or obviously corner-cropped output. The check is
   covered by synthetic full-surface, blank, and corner-only image tests.
 - No-probe startup now has a regression test that verifies screenshot-mode app
   construction creates no audio stream, audio output list, MIDI connection, or
   MIDI input list while preserving visible skip statuses.
+- Windowless startup probing now has an integration test that runs
+  `orbifold --startup-probe` with logging disabled and checks that raw ALSA/JACK
+  backend diagnostics do not escape to stdout or stderr.
+- Settings save failures now flow through the same logged error-status path as
+  other recoverable errors, and the Save Settings control has regression coverage
+  for both successful writes and write failures.
+- Project save failures now have deterministic regression coverage proving the
+  app reports the failed target path, keeps the project dirty, and does not adopt
+  the failed path as the current project file.
+- Project save also logs backup-removal and temp-cleanup failures instead of
+  swallowing them, and the backup-failure path has regression coverage proving
+  an existing project file is preserved when the save cannot safely rotate the
+  previous backup.
+- Project save now rotates three backup generations (`.bak`, `.bak.2`, and
+  `.bak.3`) instead of overwriting a single backup file on every save.
+- Audio command queue failures from All Off, synth setting changes, playback
+  note-on/off updates, stale device refreshes, and related MIDI/asset failure
+  paths now use the shared logged error-status path instead of writing unlogged
+  status strings directly. Deterministic disconnected-audio-queue tests cover
+  All Off, A4 test tone, and synth parameter failures without opening a window or
+  audio device.
+- MIDI input connection failures now preserve the backend error in the visible
+  logged status instead of reducing it to a generic failed-connect message.
+- Scale, Lumatone, audio, and MIDI labels now use real names or explicit error
+  statuses instead of silently falling back to `Unknown`; unreadable MIDI port
+  names are logged and skipped during device listing.
+- MIDI connection now re-matches the selected visible device by live port name
+  before opening it, so a stale list index cannot connect the wrong input after
+  device enumeration changes.
+- Failed user-triggered device selection/connect actions now use the shared
+  logged diagnostic path instead of writing unlogged footer statuses.
 - Audio-unavailable startup handling now has deterministic tests with an
   injected audio builder, including the saved-device failure and fallback
   failure status path.
@@ -530,10 +858,65 @@ Progress since this gap list was first written:
 - Linux CI now has a GitHub Actions workflow that installs native audio/MIDI
   build dependencies, runs formatting, runs tests, and runs clippy with warnings
   denied.
+- Asset imports now avoid overwriting existing library files by selecting a
+  unique destination filename and reporting when a conflict caused a renamed
+  import.
+- `docs/asset_browser.md` now documents current asset folders, supported
+  extensions, refresh behavior, import copying, conflict renaming, missing-file
+  expectations, and the current no-preview/no-assignment limitations.
+- `docs/asset_to_sound.md` now explains that the built-in synth is the current
+  sound-producing path, that imported assets are library-only, and which
+  sample/instrument/preset/impulse workflows are not implemented yet.
+- Selecting an asset now reports the relevant library-only status in the footer,
+  such as missing sample preview/assignment or instrument loading, instead of
+  leaving users to infer why the selected asset does not affect sound.
+- Asset footer statuses now avoid developer-facing `not implemented` wording and
+  say plainly which sound workflows are unavailable yet.
+- The asset browser now has a first real sound workflow: selected WAV samples can
+  be previewed and stopped through the connected audio output. Unsupported
+  formats and missing audio output report visible errors instead of silently
+  doing nothing.
+- `docs/architecture.md` now gives contributors a high-level map of startup,
+  `AppState`, audio/synth threading, MIDI handling, project/settings files,
+  Operad UI modules, action flow, and test locations.
+- `docs/audio_midi_threading.md` now documents the UI/main thread, CPAL audio
+  callback, midir callback, shared handles, command flow, device lifecycle,
+  failure policy, and rules for adding audio, MIDI, and recording work.
+- `docs/operad_integration.md` now documents the native Operad host, frame
+  lifecycle, document construction, ordinary controls, custom editor surfaces,
+  action dispatch, focus/cursor behavior, screenshot mode, and UI test
+  expectations.
+- Project save now reports autosave cleanup failures in the visible saved status
+  and only exposes autosave recovery when the autosave path is a real file, not
+  a stale directory or other non-recoverable filesystem entry.
+- Note editing, key-map loading, loop-length changes, and common
+  transport-setting status updates now preserve an autosave/persistence error
+  instead of replacing it with a normal success label such as `Added note`,
+  `Metronome on`, or `Loop length 8 beats`.
+- Scale-browser rows now identify whether a scale is bundled or show the user
+  folder it came from, so the scale list no longer hides source/location context
+  behind bare names.
+- The scale browser now has the same kind of search/filter path as the asset
+  browser, with a clear action and filtered list navigation for larger tuning
+  libraries.
+- The active scale card now shows compact equal-division metadata when the scale
+  is an EDO/TET-style division and previews the first scale intervals in cents.
+- Base frequency now has a numeric Hz input in the control panel; committing a
+  typed value uses the same retune path as the stepper buttons.
+- Root selection now has a text input in the control panel. It accepts note names
+  such as `C4`, accidentals such as `Bb3`, or raw MIDI numbers such as `60`,
+  then retunes existing and sounding notes through the shared root-change path.
+- The scale browser now has a direct `Import` action wired to the non-blocking
+  Scala file dialog, so importing scales is available beside Load, Refresh, and
+  Remove instead of only through the top bar.
+- Orbifold is pinned to the pushed Operad `codex/v8-roadmap` commit
+  `a517853440f5f8f78b4de5b9f500556501285a5a` and handles the new
+  `ScenePrimitive::MorphPolygon` primitive in its local piano-roll scene
+  translation path.
 
-Remaining caveat: normal interactive startup still probes the host audio stack
-and can emit ALSA/JACK warnings on Linux before reporting a recoverable no-audio
-state.
+Remaining caveat: normal interactive startup still probes the host audio stack.
+Linux ALSA/JACK diagnostics are routed through Orbifold logging on the covered
+startup-probe path, but broader hardware and distro coverage is still needed.
 
 ## Scope
 
@@ -606,9 +989,9 @@ pieces do not yet add up to a trustworthy end-user workflow.
 
 ## Current Visual State
 
-The latest screenshot is no longer a fake DAW mockup: it shows a real current
-project card, a single `Current Clip` lane, and an empty arrangement that says
-`No recorded clip`. It also now fits the full workspace at the captured 2x scale:
+The latest screenshot is no longer a fake DAW mockup: it shows real left-browser
+state, a single `Current Clip` lane, and an empty arrangement that says `Empty
+clip`. It also now fits the full workspace at the captured 2x scale:
 left panels, track lane, arrangement, piano roll, and right controls are all
 visible. That is a substantial improvement over the earlier cropped, oversized
 render.
@@ -656,20 +1039,22 @@ Current problem:
 
 - Interactive startup now has a basic no-audio path, but it still probes the host
   audio stack directly during startup.
-- Linux hosts can still print ALSA/JACK warnings before the app reports a
-  recoverable no-audio state.
-- There is not yet a complete device setup state or diagnostics panel.
+- Linux ALSA/JACK diagnostics are now routed through logging on the covered
+  startup-probe path instead of raw terminal output, but broader host coverage is
+  still needed.
+- A basic device setup state and diagnostics panel now exist, but the workflow is
+  still not a full preferences surface with durable troubleshooting history.
 - Fatal graphics/window/renderer errors still prevent the UI from appearing.
 
 Missing:
 
-- A "device setup required" state.
-- Clear structured status for missing audio and missing MIDI.
+- Richer structured status for missing audio and missing MIDI beyond the current
+  compact setup summary.
 - A visible diagnostics panel or status dialog for startup failures.
 - A distinction between "audio unavailable", "MIDI unavailable", "settings
-  invalid", and "project failed to load".
-- A quieter audio probing path that does not dump backend warnings into the
-  terminal during normal startup.
+  invalid", and "project failed to load" across the whole app, not just the
+  device panel.
+- More hardware coverage for quiet audio probing across Linux audio stacks.
 
 Minimum acceptable behavior:
 
@@ -678,7 +1063,8 @@ Minimum acceptable behavior:
 - If MIDI fails, Orbifold launches and shows "No MIDI input connected".
 - The A4 test button is disabled or reports a useful error when audio is not
   available. The basic version of this now exists.
-- The UI offers refresh and reconnect without requiring restart.
+- The UI offers refresh and reconnect without requiring restart. The Devices
+  panel now covers the basic version of this for audio and MIDI.
 
 ### The UI Needs A Real Information Architecture
 
@@ -699,9 +1085,12 @@ Missing:
   arrangement, editor, and inspectors.
 - A true responsive policy for minimum, normal, wide, and 4K displays.
 - A scale policy that makes 4K readable without making every control enormous.
-- Collapsible or resizable side panels.
+- More complete collapsible side-panel policies beyond the current persisted
+  splitters.
 - Stable panel minimum sizes.
-- Real scroll containers where content can exceed available space.
+- Full scroll containers where content can exceed available space; left-browser
+  lists have visible overflow indicators and small up/down controls, but still
+  use selection movement rather than true scroll state.
 - Empty states that tell the truth.
 - A design token system for spacing, text sizes, colors, borders, and row heights.
 
@@ -727,11 +1116,16 @@ Examples:
 
 - The old placeholder track select/mute/solo/Add Track controls have been
   removed from the default single-clip surface rather than left as fake actions.
-- BPM uses tiny plus/minus buttons and a label, not a proper numeric control.
-- Quantize cycles through values instead of exposing a clear menu.
-- Device selection uses prev/next buttons rather than a device picker.
-- The top-bar preferences action now says `Save Settings`, but there is still no
-  full settings window.
+- BPM now has an editable numeric field between the self-describing `BPM -` /
+  `BPM +` buttons, though it is still a compact prototype input rather than a
+  mature tempo-control component.
+- Compact top-bar quantize still cycles through values, and the direct
+  previous/next grid buttons are still not a full menu or dropdown.
+- Compact device rows still use prev/next buttons, while the Devices panel now
+  has direct picker rows with navigation for hidden rows.
+- The top-bar preferences action now uses `Prefs` at minimum width, `Save Pref`
+  at normal desktop width, and `Save Settings` when the wide layout has room;
+  there is still no full settings window.
 
 Missing:
 
@@ -778,7 +1172,8 @@ Missing:
 - Clip colors.
 - Clip start and length in arrangement time.
 - Selected track and selected clip state.
-- Arrangement scroll and zoom state.
+- Dedicated arrangement scroll and zoom state, if arrangement and piano time
+  views should eventually diverge.
 - Durable editor state that can be saved or intentionally treated as ephemeral.
 
 Minimum acceptable behavior:
@@ -815,11 +1210,16 @@ Missing:
 - Drag from browser to arrangement.
 - Snap to grid.
 - Toggle snap.
-- Zoom horizontally.
-- Scroll horizontally.
+- Dedicated arrangement-specific horizontal zoom controls if the current shared
+  piano/arrangement time viewport is not enough.
+- Dedicated arrangement-specific horizontal scroll controls if the current
+  shared piano/arrangement time viewport is not enough.
 - Scroll vertically.
-- Show loop region.
-- Set loop region.
+- Show loop region. Basic loop-start and loop-end boundary lines now render;
+  shaded/editable loop-region controls are still missing.
+- Set loop region. Loop end is now draggable from the arrangement and piano-roll
+  rulers; loop start remains fixed at beat 1 and shaded loop-region editing is
+  still missing.
 - Scrub or click the ruler to move playhead. Basic ruler click/drag seeking now
   exists; richer scrub behavior is still missing.
 - Multi-select clips.
@@ -859,7 +1259,6 @@ Missing:
 - Marquee note selection.
 - Multi-note copy/paste once multi-select exists.
 - Multi-note delete and duplicate operations once multi-select exists.
-- Optional scale-degree display.
 - Scroll and zoom.
 - Consistent editing cursor and hit target behavior.
 
@@ -882,6 +1281,9 @@ Current problem:
   when overwriting.
 - Autosave/recovery exists, and Save As can write the current project under a
   new path.
+- Project loads now resolve relative scale, key-map, and sample references from
+  the project file's directory, and saving writes project-local references back
+  as relative paths so moved project folders remain portable.
 
 Missing:
 
@@ -889,11 +1291,8 @@ Missing:
   and project management actions.
 - Configurable autosave interval and storage location.
 - Crash-recovery polish beyond the current manual Recover action.
-- Backup rotation beyond the single `.bak` file.
 - Clear error messages for failed save/open.
 - Confirmation for destructive operations.
-- Project format version migration tests with fixtures.
-- Cross-platform path handling for moved assets.
 
 Minimum acceptable behavior:
 
@@ -934,14 +1333,12 @@ Minimum acceptable behavior:
 Current problem:
 
 - Audio output enumeration and connection exist.
-- The UI exposes audio through compact prev/next/refresh/connect controls, with
-  visible selected-device position.
+- The UI exposes audio through compact prev/next/refresh/connect controls and a
+  right-panel Devices mode with direct picker rows and concise diagnostics.
 - There is no full device preferences workflow.
 
 Missing:
 
-- Device picker.
-- Audio backend diagnostics.
 - Recovery when a selected device disappears.
 - Clear fallback when default device changes.
 - Persisted device preference that does not make startup fragile.
@@ -958,12 +1355,11 @@ Current problem:
 - MIDI enumeration and connection exist.
 - The app opens a selected MIDI input and captures events.
 - Long MIDI names have already caused layout pressure.
+- The right-panel Devices mode exposes direct MIDI input picker rows.
 
 Missing:
 
-- Device picker.
 - Hotplug refresh behavior.
-- Synth response policy for pitch bend and non-sustain CC messages.
 - MPE or multi-channel policy.
 - Multiple simultaneous MIDI inputs, or an explicit decision not to support them.
 
@@ -1011,19 +1407,10 @@ Current problem:
 
 Missing:
 
-- Scale browser with source/location.
-- Import scale.
 - Remove scale.
 - Rename/favorite scale.
-- Search/filter.
-- Display scale intervals.
-- Display EDO metadata when relevant.
 - `.kbm` keyboard mapping support, or an explicit decision to use Lumatone maps
   instead.
-- Root note selector.
-- Base frequency numeric input.
-- Retune behavior for currently sounding notes.
-- Tuning compatibility with recorded notes.
 - Per-project scale vs global default distinction.
 
 Minimum useful alpha behavior:
@@ -1044,9 +1431,8 @@ Missing:
 - Synth preset browser.
 - Save preset.
 - Load preset.
-- Proper controls for gain, waveform, attack, release, filter, delay, and drive.
+- Proper controls for gain, attack, release, filter, delay, and drive.
 - Parameter ranges and units shown clearly.
-- Reset to default.
 - Per-track synth state once tracks exist.
 - Meters.
 - Polyphony status.
@@ -1179,16 +1565,14 @@ Missing:
 
 Current problem:
 
-- The left project panel shows the current project file state.
-- It now shows recent-project rows when history exists and a truthful empty
-  state when it does not.
-- Recent rows can be opened or forgotten individually without deleting project
-  files.
-- Missing recent project files are marked, cannot be opened from their row, and
-  can be forgotten from the project panel.
-- Existing recent rows now include a compact modified-age label such as `now`,
-  `5m`, `2h`, or `3d`.
-- It is still a lightweight project switcher, not a full project browser.
+- The old always-visible project panel has been removed from the default
+  surface.
+- Recovery and recent-project actions now live in the left session strip only
+  when autosave or recent state exists.
+- The session strip can recover autosaves, open a visible recent-project row,
+  and forget stale recent state without deleting project files.
+- Missing recent project files are not opened and can be forgotten.
+- This is still a lightweight session shortcut, not a full project browser.
 
 Missing:
 
@@ -1201,8 +1585,9 @@ Missing:
 
 Minimum useful behavior:
 
-- The current project card is acceptable for the prototype. A browser should not
-  return until it is backed by real recent-project data and project actions.
+- The compact session strip is acceptable for the prototype. A full browser
+  should not return until it is backed by richer recent-project data and project
+  actions.
 
 ### Scale Browser
 
@@ -1324,10 +1709,11 @@ Missing:
 - Better use of color: track identity should be vivid, panels should be quiet.
 - Meter styling.
 - Transport state styling.
-- Clip color consistency between track list, arrangement, and piano roll.
-- Better status bar content hierarchy.
+- A richer track/clip color system once there is more than one real track.
+- A fuller status/event history surface beyond the one-line footer.
 - Better empty states in secondary panels. The empty clip path now reports
-  itself in both the arrangement and the piano roll.
+  itself in the arrangement and clip controls, while the piano-roll grid stays
+  clear of large placeholder text.
 - Better window minimum size policy.
 
 Specific screenshot issues to keep watching:
@@ -1425,10 +1811,8 @@ Important warning:
 
 Missing:
 
-- App icon.
-- Desktop file on Linux.
+- Polished final app icon.
 - Bundle/package format.
-- Version display in UI.
 - About dialog.
 - License display.
 - Crash/error reporting story.
@@ -1437,8 +1821,6 @@ Missing:
 - Config directory policy.
 - Project file association.
 - Installer or archive packaging.
-- Release checklist.
-- Changelog.
 - GitHub repo setup and tags, if not already done.
 
 Minimum useful alpha behavior:
@@ -1448,35 +1830,86 @@ Minimum useful alpha behavior:
 
 ## Documentation Gaps
 
-Missing user docs:
+Basic user docs now covered by `docs/first_run.md`:
 
 - First run.
 - Audio setup.
 - MIDI setup.
-- Lumatone setup.
 - Loading scales.
 - Recording.
 - Editing notes.
 - Saving/opening projects.
 - Troubleshooting.
-- Known limitations.
+
+Deeper hardware/file troubleshooting is now covered by `docs/troubleshooting.md`:
+
+- Startup probe and logging.
+- Audio setup failures.
+- MIDI setup failures.
+- Settings parse/save issues.
+- Project/autosave recovery issues.
+
+Lumatone setup docs are now covered by `docs/lumatone_setup.md`:
+
+- Scale versus key-map behavior.
+- Factory `.ltn` presets.
+- User key-map loading.
+- MIDI/channel-filter setup.
+- Mapping capture limitations.
+
+Asset browser/import docs are now covered by `docs/asset_browser.md`:
+
+- Asset folders and supported extensions.
+- Refresh and stale-selection behavior.
+- Import copy and conflict-renaming behavior.
+- Current no-preview/no-assignment limitations.
+
+Asset-to-sound workflow docs are now covered by `docs/asset_to_sound.md`:
+
+- Current built-in synth sound path.
+- Asset library-only status by category.
+- Status-bar feedback when selected assets cannot affect sound yet.
+- Target sample, instrument, preset, impulse, and missing-asset workflows that
+  are not implemented yet.
+
+Known limitations are now covered by `docs/known_limitations.md`:
+
+- Single-clip and not-yet-real multi-track arrangement limits.
+- Piano-roll, audio/MIDI, and asset workflow limits.
+- Scale/key-map validation and Lumatone hardware programming limits.
+- Project asset packaging, UI/help, release packaging, and screenshot reporting.
+
+Keyboard shortcut docs are now covered by `docs/keyboard_shortcuts.md`:
+
+- Full shortcut categories.
+- Focus and discoverability.
+- Modifier and key-repeat policy.
+- Workflow examples for recording, editing, view zoom, undo/redo, copy/paste,
+  and safe project save/open behavior.
+
+Advanced Lumatone troubleshooting docs are now covered by
+`docs/lumatone_troubleshooting.md`:
+
+- Manual scale/key-map validation.
+- Wrong-note and silent-input diagnosis.
+- Channel-filter and mapping-capture checks.
+- `.ltn` parse error interpretation.
+- Bug-report evidence for Lumatone issues.
+
+Still missing or too thin:
+
+- No remaining user-doc items are listed in this section. Developer docs below
+  are still thin.
 
 Missing developer docs:
 
-- Architecture overview.
-- Audio/MIDI threading model.
-- Project file format.
-- Settings file format.
-- Operad integration model.
-- UI testing workflow.
-- Release workflow.
-- How to add a new control/action.
-- How to add a new project command.
+- No remaining developer-doc items are listed in this section.
 
 Current documentation problem:
 
-- The README is now current at a high level, but user docs, troubleshooting, and
-  architecture docs are still too thin for testers.
+- The README now links tester-focused guides and a basic architecture overview,
+  and developer docs now cover threading, Operad integration, UI testing,
+  release flow, and command/action patterns.
 
 ## Data Safety Gaps
 
@@ -1486,7 +1919,6 @@ Missing:
 - Backup rotation and cleanup policy.
 - Confirm before destructive operations.
 - Distinguish remove-from-library vs delete-from-disk.
-- Import conflict handling.
 - Project migration backups.
 - Clear error when writing settings fails.
 - Clear error when project save fails.
@@ -1522,11 +1954,10 @@ Important design decision:
 
 1. Finish hardening no-audio startup and device diagnostics.
 2. Make every top-bar button either fully work or visibly disable it.
-3. Add a real settings/device panel.
-4. Replace the current global scaling behavior with a responsive density policy.
-5. Add visual screenshot review to the normal development checklist.
-6. Keep splitting `src/ui/native.rs` before it becomes too costly to change.
-7. Add saved-baseline tracking, autosave, backup, and recovery on top of the
+3. Replace the current global scaling behavior with a responsive density policy.
+4. Add visual screenshot review to the normal development checklist.
+5. Keep splitting `src/ui/native.rs` before it becomes too costly to change.
+6. Add saved-baseline tracking, autosave, backup, and recovery on top of the
    basic dirty indicator.
 
 ### Near-Term P1 Backlog
@@ -1541,7 +1972,8 @@ Important design decision:
 6. Add arrangement clip selection and movement if arrangement clips return.
 7. Build a fuller scale browser/import flow.
 8. Build a keymap browser/load flow.
-9. Build proper audio and MIDI device pickers.
+9. Turn the current Devices picker panel into a fuller device preferences
+   workflow.
 10. Add project recovery/autosave.
 
 ### Medium-Term P2 Backlog

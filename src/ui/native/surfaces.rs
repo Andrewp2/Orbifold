@@ -3,22 +3,38 @@ use operad::{
     UiPoint, UiRect, UiVisual, layout, widgets,
 };
 
-use crate::app::AppState;
+use crate::app::{AppState, PIANO_MAX_PITCH, PIANO_MIN_PITCH, WorkspaceResizeTarget};
 use crate::project::{ClipNote, QuantizeGrid};
-use crate::ui::theme::{accent, color, fade, muted, stroke, strong};
+use crate::time::AppInstant;
+use crate::ui::theme::{accent, clip_color, color, fade, muted, stroke, strong};
 
+use super::browser::{left_browser_split_height_at, left_browser_splitter_rect};
 use super::controls::{add_hit_at, add_pointer_edit_hit_at, add_pointer_edit_hit_at_to};
+#[cfg(feature = "web-app")]
+use super::workspace::{BodyRects, workspace_resize_rects};
+use super::workspace::{
+    MIN_BOTTOM_EDITOR_HEIGHT, MIN_EDITOR_TOP_HEIGHT, body_rects, workspace_panel_width_limits,
+};
 use super::{
-    MIN_PITCH_GRID_SPACING, MIN_QUANTIZE_GRID_SPACING, body_rects, draw_panel, push_line,
-    push_rect, push_text,
+    MIN_PITCH_GRID_SPACING, MIN_QUANTIZE_GRID_SPACING, draw_panel, push_line, push_rect, push_text,
 };
 
 const MIN_VISIBLE_NOTE_WIDTH: f32 = 24.0;
+const PIANO_VIEWPORT_INDICATOR_THICKNESS: f32 = 3.0;
+const PIANO_VIEWPORT_INDICATOR_MIN_THUMB: f32 = 18.0;
 pub(super) const PIANO_INPUT_CANVAS_KEY: &str = "orbifold.piano.input";
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum LoopBoundary {
+    Start,
+    End,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::ui) struct SurfaceRects {
     pub(super) left: UiRect,
+    pub(super) track: UiRect,
+    pub(super) center: UiRect,
     pub(super) right: UiRect,
     pub(super) arrangement: UiRect,
     pub(super) arrangement_ruler: UiRect,
@@ -50,7 +66,14 @@ impl SurfaceRects {
 
     pub(in crate::ui) fn arrangement_beat_at(self, point: UiPoint) -> f32 {
         ((point.x - self.arrangement_ruler.x) / self.arrangement_ruler.width).clamp(0.0, 1.0)
-            * self.loop_beats.max(1.0)
+            * self.view_beats.max(1.0)
+            + self.view_start_beats
+    }
+
+    pub(in crate::ui) fn arrangement_beat_at_unclamped(self, point: UiPoint) -> f32 {
+        (point.x - self.arrangement_ruler.x) / self.arrangement_ruler.width.max(1.0)
+            * self.view_beats.max(1.0)
+            + self.view_start_beats
     }
 
     pub(in crate::ui) fn piano_ruler_beat_at(self, point: UiPoint) -> f32 {
@@ -59,9 +82,104 @@ impl SurfaceRects {
             + self.view_start_beats
     }
 
+    pub(in crate::ui) fn piano_ruler_beat_at_unclamped(self, point: UiPoint) -> f32 {
+        (point.x - self.piano_ruler.x) / self.piano_ruler.width.max(1.0) * self.view_beats.max(1.0)
+            + self.view_start_beats
+    }
+
     pub(in crate::ui) fn pitch_at(self, point: UiPoint) -> i32 {
         let row = ((point.y - self.piano_grid.y) / self.row_height()).floor() as i32;
         (self.max_pitch - row).clamp(self.min_pitch, self.max_pitch)
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_grid_rect(self) -> UiRect {
+        self.piano_grid
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_grid_point_for(self, beat: f32, pitch: i32) -> UiPoint {
+        let beat_fraction =
+            ((beat - self.view_start_beats) / self.view_beats.max(1.0)).clamp(0.0, 1.0);
+        let pitch = pitch.clamp(self.min_pitch, self.max_pitch);
+        let row = self.max_pitch - pitch;
+        UiPoint::new(
+            self.piano_grid.x + self.piano_grid.width * beat_fraction,
+            self.piano_grid.y + (row as f32 + 0.5) * self.row_height(),
+        )
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_note_primary_rect(self, note: &ClipNote) -> Option<UiRect> {
+        piano_note_rects(note.clone(), self).into_iter().next()
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn workspace_resize_point_for(
+        self,
+        app: &AppState,
+        target: WorkspaceResizeTarget,
+    ) -> Option<UiPoint> {
+        match target {
+            WorkspaceResizeTarget::Left => {
+                Some(point_between(self.left.right(), self.track.x, self.left))
+            }
+            WorkspaceResizeTarget::Track => app
+                .show_clip_panel
+                .then(|| point_between(self.track.right(), self.center.x, self.track)),
+            WorkspaceResizeTarget::Right => Some(point_between(
+                self.center.right(),
+                self.right.x,
+                self.center,
+            )),
+            WorkspaceResizeTarget::Bottom => Some(UiPoint::new(
+                self.piano_roll.x + self.piano_roll.width * 0.5,
+                self.piano_roll.y - 4.0,
+            )),
+            WorkspaceResizeTarget::Browser => {
+                left_browser_splitter_rect(app, self.left).map(rect_center)
+            }
+        }
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn workspace_resize_target_at_point(
+        self,
+        app: &AppState,
+        point: UiPoint,
+    ) -> Option<WorkspaceResizeTarget> {
+        if let Some(rect) = left_browser_splitter_rect(app, self.left)
+            && rect_contains_point(rect, point)
+        {
+            return Some(WorkspaceResizeTarget::Browser);
+        }
+        let body = BodyRects {
+            left: self.left,
+            track: self.track,
+            center: self.center,
+            right: self.right,
+        };
+        let splitters = workspace_resize_rects(body, self.piano_roll);
+        if rect_contains_point(splitters.left, point) {
+            return Some(WorkspaceResizeTarget::Left);
+        }
+        if app.show_clip_panel && rect_contains_point(splitters.track, point) {
+            return Some(WorkspaceResizeTarget::Track);
+        }
+        if rect_contains_point(splitters.right, point) {
+            return Some(WorkspaceResizeTarget::Right);
+        }
+        rect_contains_point(splitters.bottom, point).then_some(WorkspaceResizeTarget::Bottom)
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn right_panel_width(self) -> f32 {
+        self.right.width
+    }
+
+    #[cfg(feature = "web-app")]
+    pub(in crate::ui) fn piano_roll_height(self) -> f32 {
+        self.piano_roll.height
     }
 
     pub(in crate::ui) fn velocity_at(self, point: UiPoint) -> u8 {
@@ -70,12 +188,171 @@ impl SurfaceRects {
         .clamp(0.0, 1.0);
         ((normalized * 126.0) + 1.0).round().clamp(1.0, 127.0) as u8
     }
+
+    pub(in crate::ui) fn contains_piano_input(self, point: UiPoint) -> bool {
+        point.x >= self.piano_roll.x
+            && point.x <= self.piano_roll.right()
+            && point.y >= self.piano_roll.y
+            && point.y <= self.piano_roll.bottom()
+    }
+
+    pub(in crate::ui) fn piano_wheel_scroll_delta(self, delta: UiPoint, shift: bool) -> (f32, i32) {
+        let horizontal_px = if shift {
+            if delta.x.abs() > f32::EPSILON {
+                delta.x
+            } else {
+                delta.y
+            }
+        } else {
+            delta.x
+        };
+        let vertical_px = if shift { 0.0 } else { delta.y };
+        let delta_beats = horizontal_px * self.view_beats / self.piano_grid.width.max(1.0);
+        let delta_pitches = (-(vertical_px / self.row_height().max(1.0))).round() as i32;
+        (delta_beats, delta_pitches)
+    }
+
+    pub(in crate::ui) fn loop_end_beat_at(self, action: &str, point: UiPoint) -> Option<f32> {
+        match action {
+            "transport.loop_end" => Some(self.arrangement_beat_at_unclamped(point)),
+            "piano.loop_end" => Some(self.piano_ruler_beat_at_unclamped(point)),
+            _ => None,
+        }
+    }
+
+    pub(in crate::ui) fn piano_time_view_grab_offset(self, point: UiPoint) -> f32 {
+        let (_, thumb) = piano_time_viewport_indicator_rects(self);
+        (point.x - thumb.x).clamp(0.0, thumb.width)
+    }
+
+    pub(in crate::ui) fn piano_pitch_view_grab_offset(self, point: UiPoint) -> f32 {
+        let (_, thumb) = piano_pitch_viewport_indicator_rects(self);
+        (point.y - thumb.y).clamp(0.0, thumb.height)
+    }
+
+    pub(in crate::ui) fn piano_time_view_fraction(
+        self,
+        point: UiPoint,
+        grab_offset_px: f32,
+    ) -> f32 {
+        let (track, thumb) = piano_time_viewport_indicator_rects(self);
+        let available = track.width - thumb.width;
+        if available <= f32::EPSILON {
+            0.0
+        } else {
+            (point.x - grab_offset_px - track.x) / available
+        }
+    }
+
+    pub(in crate::ui) fn piano_pitch_view_fraction(
+        self,
+        point: UiPoint,
+        grab_offset_px: f32,
+    ) -> f32 {
+        let (track, thumb) = piano_pitch_viewport_indicator_rects(self);
+        let available = track.height - thumb.height;
+        if available <= f32::EPSILON {
+            0.0
+        } else {
+            (point.y - grab_offset_px - track.y) / available
+        }
+    }
+
+    pub(in crate::ui) fn workspace_resize_grab_offset(
+        self,
+        app: &AppState,
+        target: WorkspaceResizeTarget,
+        point: UiPoint,
+    ) -> f32 {
+        let boundary = match target {
+            WorkspaceResizeTarget::Left => self.left.right(),
+            WorkspaceResizeTarget::Track => self.track.right(),
+            WorkspaceResizeTarget::Right => self.right.x,
+            WorkspaceResizeTarget::Bottom => self.piano_roll.y,
+            WorkspaceResizeTarget::Browser => left_browser_splitter_rect(app, self.left)
+                .map(|rect| rect.y)
+                .unwrap_or(point.y),
+        };
+        match target {
+            WorkspaceResizeTarget::Left
+            | WorkspaceResizeTarget::Track
+            | WorkspaceResizeTarget::Right => point.x - boundary,
+            WorkspaceResizeTarget::Bottom | WorkspaceResizeTarget::Browser => point.y - boundary,
+        }
+    }
+
+    pub(in crate::ui) fn workspace_resize_value(
+        self,
+        app: &AppState,
+        target: WorkspaceResizeTarget,
+        point: UiPoint,
+        grab_offset_px: f32,
+    ) -> Option<f32> {
+        let adjusted_point = match target {
+            WorkspaceResizeTarget::Left
+            | WorkspaceResizeTarget::Track
+            | WorkspaceResizeTarget::Right => UiPoint::new(point.x - grab_offset_px, point.y),
+            WorkspaceResizeTarget::Bottom | WorkspaceResizeTarget::Browser => {
+                UiPoint::new(point.x, point.y - grab_offset_px)
+            }
+        };
+        let viewport_width = self.right.right() + 8.0;
+        let value = match target {
+            WorkspaceResizeTarget::Left => {
+                let (min, max) =
+                    workspace_panel_width_limits(viewport_width, target, app.show_clip_panel);
+                (adjusted_point.x - self.left.x).clamp(min, max)
+            }
+            WorkspaceResizeTarget::Track => {
+                if !app.show_clip_panel {
+                    return None;
+                }
+                let (min, max) =
+                    workspace_panel_width_limits(viewport_width, target, app.show_clip_panel);
+                (adjusted_point.x - self.track.x).clamp(min, max)
+            }
+            WorkspaceResizeTarget::Right => {
+                let (min, max) =
+                    workspace_panel_width_limits(viewport_width, target, app.show_clip_panel);
+                (self.right.right() - adjusted_point.x).clamp(min, max)
+            }
+            WorkspaceResizeTarget::Bottom => {
+                let max_bottom_h =
+                    (self.piano_roll.bottom() - self.arrangement.y - MIN_EDITOR_TOP_HEIGHT)
+                        .max(MIN_BOTTOM_EDITOR_HEIGHT);
+                (self.piano_roll.bottom() - adjusted_point.y)
+                    .clamp(MIN_BOTTOM_EDITOR_HEIGHT, max_bottom_h)
+            }
+            WorkspaceResizeTarget::Browser => {
+                left_browser_split_height_at(app, self.left, adjusted_point)?
+            }
+        };
+        Some(value)
+    }
+}
+
+#[cfg(feature = "web-app")]
+fn rect_center(rect: UiRect) -> UiPoint {
+    UiPoint::new(rect.x + rect.width * 0.5, rect.y + rect.height * 0.5)
+}
+
+#[cfg(feature = "web-app")]
+fn point_between(left_edge: f32, right_edge: f32, vertical_reference: UiRect) -> UiPoint {
+    UiPoint::new(
+        (left_edge + right_edge) * 0.5,
+        vertical_reference.y + vertical_reference.height * 0.5,
+    )
+}
+
+#[cfg(feature = "web-app")]
+fn rect_contains_point(rect: UiRect, point: UiPoint) -> bool {
+    point.x >= rect.x && point.x <= rect.right() && point.y >= rect.y && point.y <= rect.bottom()
 }
 
 pub(super) fn surface_rects(app: &AppState, width: f32, height: f32) -> SurfaceRects {
     let top_h = 62.0;
     let bottom_h = 26.0;
-    let body = body_rects(width, height, top_h, bottom_h);
+    let body = body_rects(app, width, height, top_h, bottom_h);
     let left = body.left;
     let center = body.center;
     let right = body.right;
@@ -102,7 +379,7 @@ pub(super) fn surface_rects(app: &AppState, width: f32, height: f32) -> SurfaceR
     let options_width = body
         .track
         .width
-        .clamp(150.0, 210.0)
+        .clamp(190.0, 230.0)
         .min((inner_width * 0.25).max(120.0));
     let piano_options = UiRect::new(
         inner_x,
@@ -144,6 +421,8 @@ pub(super) fn surface_rects(app: &AppState, width: f32, height: f32) -> SurfaceR
     let (min_pitch, max_pitch) = app.piano_pitch_range();
     SurfaceRects {
         left,
+        track: body.track,
+        center: body.center,
         right,
         arrangement,
         arrangement_ruler,
@@ -177,7 +456,7 @@ impl ArrangementSurfaceModel {
             notes: project.clip.notes.clone(),
             loop_beats: project.transport.loop_beats.max(1.0),
             quantize_grid: project.transport.quantize_grid,
-            current_beat: project.current_position_beats(std::time::Instant::now()),
+            current_beat: project.current_position_beats(AppInstant::now()),
         };
         drop(project);
         model
@@ -197,7 +476,7 @@ impl PianoRollSurfaceModel {
         let project = app.music_project.lock();
         let notes = project.clip.notes.clone();
         let quantize_grid = project.transport.quantize_grid;
-        let current_beat = project.current_position_beats(std::time::Instant::now());
+        let current_beat = project.current_position_beats(AppInstant::now());
         drop(project);
         let selected_note = app.selected_clip_note;
         Self {
@@ -239,7 +518,7 @@ fn add_arrangement_surface(
 ) -> UiNodeId {
     let model = ArrangementSurfaceModel::from_app(app);
     let mut primitives = Vec::new();
-    draw_arrangement(&mut primitives, rects.arrangement, &model);
+    draw_arrangement(&mut primitives, rects.arrangement, rects, &model);
     widgets::scene(
         document,
         parent,
@@ -320,6 +599,9 @@ fn add_center_editor_hit_targets(
 ) {
     let notes = app.music_project.lock().clip.notes.clone();
     add_pointer_edit_hit_at(document, "transport.seek", rects.arrangement_ruler);
+    if let Some(rect) = loop_end_boundary_hit_rect(rects.arrangement_ruler, rects) {
+        add_pointer_edit_hit_at(document, "transport.loop_end", rect);
+    }
     if !notes.is_empty() {
         add_hit_at(
             document,
@@ -333,11 +615,43 @@ fn add_center_editor_hit_targets(
         "piano.seek",
         local_rect(rects.piano_roll, rects.piano_ruler),
     );
+    if let Some(rect) = loop_end_boundary_hit_rect(rects.piano_ruler, rects) {
+        add_pointer_edit_hit_at_to(
+            document,
+            piano_input,
+            "piano.loop_end",
+            local_rect(rects.piano_roll, rect),
+        );
+    }
+    add_pointer_edit_hit_at_to(
+        document,
+        piano_input,
+        "piano.viewport.time",
+        local_rect(
+            rects.piano_roll,
+            piano_time_viewport_indicator_hit_rect(rects),
+        ),
+    );
+    add_pointer_edit_hit_at_to(
+        document,
+        piano_input,
+        "piano.viewport.pitch",
+        local_rect(
+            rects.piano_roll,
+            piano_pitch_viewport_indicator_hit_rect(rects),
+        ),
+    );
     add_pointer_edit_hit_at_to(
         document,
         piano_input,
         "piano.grid",
         local_rect(rects.piano_roll, rects.piano_grid),
+    );
+    add_pointer_edit_hit_at_to(
+        document,
+        piano_input,
+        "piano.keyboard",
+        local_rect(rects.piano_roll, rects.piano_keyboard),
     );
     for note in &notes {
         for note_rect in piano_note_rects(note.clone(), rects) {
@@ -477,6 +791,7 @@ pub(super) fn note_resize_edge_width(note_width: f32) -> Option<f32> {
 fn draw_arrangement(
     primitives: &mut Vec<ScenePrimitive>,
     rect: UiRect,
+    rects: SurfaceRects,
     model: &ArrangementSurfaceModel,
 ) {
     draw_panel(primitives, rect, "");
@@ -493,10 +808,25 @@ fn draw_arrangement(
     push_rect(primitives, ruler, color(10, 16, 23), 0.0, None);
     push_rect(primitives, grid, color(9, 15, 22), 0.0, None);
 
-    draw_quantize_grid_lines(primitives, grid, model.loop_beats, model.quantize_grid);
-    let beat_lines = model.loop_beats.ceil() as i32;
-    for beat in 0..=beat_lines {
-        let x = grid.x + grid.width * beat as f32 / model.loop_beats;
+    let view_start = rects.view_start_beats;
+    let view_beats = rects.view_beats.max(1.0);
+    let view_end = (view_start + view_beats).min(model.loop_beats);
+    draw_quantize_grid_lines_in_view(
+        primitives,
+        grid,
+        view_start,
+        view_beats,
+        model.loop_beats,
+        model.quantize_grid,
+    );
+    for beat in view_start.floor() as i32..=view_end.ceil() as i32 {
+        if beat < 0 || beat as f32 > model.loop_beats {
+            continue;
+        }
+        let x = grid.x + grid.width * (beat as f32 - view_start) / view_beats;
+        if x < grid.x - 0.5 || x > grid.right() + 0.5 {
+            continue;
+        }
         let line_color = if beat % 4 == 0 {
             color(62, 76, 96)
         } else {
@@ -531,13 +861,13 @@ fn draw_arrangement(
             1.0,
         );
     }
-    let track_color = color(132, 81, 238);
+    let track_color = clip_color();
     let row_y = grid.y;
     if model.notes.is_empty() {
         push_text(
             primitives,
             UiRect::new(grid.x + 14.0, row_y + 14.0, grid.width - 28.0, 18.0),
-            "No recorded clip",
+            "Empty clip",
             12.0,
             muted(),
             TextHorizontalAlign::Start,
@@ -553,15 +883,17 @@ fn draw_arrangement(
             Some(stroke(track_color, 1.0)),
         );
         for note in &model.notes {
-            let x = clip.x + clip.width * note.start_beats / model.loop_beats;
-            let y = clip.y + clip.height * (1.0 - note.velocity as f32 / 127.0);
-            push_rect(
-                primitives,
-                UiRect::new(x, y, 3.0, 3.0),
-                fade(strong(), 0.65),
-                1.0,
-                None,
-            );
+            for (start, _) in visible_note_beat_segments(note, rects) {
+                let x = clip.x + clip.width * (start - view_start) / view_beats;
+                let y = clip.y + clip.height * (1.0 - note.velocity as f32 / 127.0);
+                push_rect(
+                    primitives,
+                    UiRect::new(x, y, 3.0, 3.0),
+                    fade(strong(), 0.65),
+                    1.0,
+                    None,
+                );
+            }
         }
     }
     let lane = UiRect::new(
@@ -571,14 +903,23 @@ fn draw_arrangement(
         rect.bottom() - grid.bottom() - 10.0,
     );
     push_rect(primitives, lane, color(9, 15, 22), 0.0, None);
-    let playhead_x = grid.x + grid.width * model.current_beat / model.loop_beats;
-    push_line(
+    draw_loop_boundary_lines(
         primitives,
-        UiPoint::new(playhead_x, ruler.y),
-        UiPoint::new(playhead_x, lane.bottom()),
-        accent(),
-        2.0,
+        UiRect::new(grid.x, ruler.y, grid.width, lane.bottom() - ruler.y),
+        view_start,
+        view_beats,
+        model.loop_beats,
     );
+    if model.current_beat >= view_start && model.current_beat <= view_end {
+        let playhead_x = grid.x + grid.width * (model.current_beat - view_start) / view_beats;
+        push_line(
+            primitives,
+            UiPoint::new(playhead_x, ruler.y),
+            UiPoint::new(playhead_x, lane.bottom()),
+            accent(),
+            2.0,
+        );
+    }
 }
 
 fn draw_piano_roll(
@@ -773,6 +1114,18 @@ fn draw_piano_roll(
             }
         }
     }
+    draw_loop_boundary_lines(
+        primitives,
+        UiRect::new(
+            grid.x,
+            ruler.y,
+            grid.width,
+            rects.velocity_lane.bottom() - ruler.y,
+        ),
+        view_start,
+        rects.view_beats,
+        loop_beats,
+    );
     if model.current_beat >= view_start && model.current_beat <= view_end {
         let playhead_x = grid.x + grid.width * (model.current_beat - view_start) / rects.view_beats;
         push_line(
@@ -783,39 +1136,136 @@ fn draw_piano_roll(
             2.0,
         );
     }
+    draw_piano_viewport_indicators(primitives, rects);
 }
 
-fn draw_quantize_grid_lines(
+fn draw_piano_viewport_indicators(primitives: &mut Vec<ScenePrimitive>, rects: SurfaceRects) {
+    let (time_track, time_thumb) = piano_time_viewport_indicator_rects(rects);
+    let (pitch_track, pitch_thumb) = piano_pitch_viewport_indicator_rects(rects);
+    let track_color = fade(color(72, 86, 104), 0.34);
+    let thumb_color = fade(accent(), 0.76);
+    push_rect(primitives, time_track, track_color, 2.0, None);
+    push_rect(primitives, time_thumb, thumb_color, 2.0, None);
+    push_rect(primitives, pitch_track, track_color, 2.0, None);
+    push_rect(primitives, pitch_thumb, thumb_color, 2.0, None);
+}
+
+pub(super) fn piano_time_viewport_indicator_rects(rects: SurfaceRects) -> (UiRect, UiRect) {
+    let track = UiRect::new(
+        rects.piano_grid.x,
+        rects.velocity_lane.bottom() - PIANO_VIEWPORT_INDICATOR_THICKNESS - 2.0,
+        rects.piano_grid.width,
+        PIANO_VIEWPORT_INDICATOR_THICKNESS,
+    );
+    let loop_beats = rects.loop_beats.max(1.0);
+    let visible_fraction = (rects.view_beats / loop_beats).clamp(0.0, 1.0);
+    let thumb_width = (track.width * visible_fraction)
+        .max(PIANO_VIEWPORT_INDICATOR_MIN_THUMB.min(track.width))
+        .min(track.width);
+    let max_start = (loop_beats - rects.view_beats).max(0.0);
+    let start_fraction = if max_start <= f32::EPSILON {
+        0.0
+    } else {
+        (rects.view_start_beats / max_start).clamp(0.0, 1.0)
+    };
+    let thumb_x = track.x + (track.width - thumb_width) * start_fraction;
+    (
+        track,
+        UiRect::new(thumb_x, track.y, thumb_width, track.height),
+    )
+}
+
+pub(super) fn piano_time_viewport_indicator_hit_rect(rects: SurfaceRects) -> UiRect {
+    let (track, _) = piano_time_viewport_indicator_rects(rects);
+    UiRect::new(track.x, track.y - 5.0, track.width, track.height + 10.0)
+}
+
+pub(super) fn piano_pitch_viewport_indicator_rects(rects: SurfaceRects) -> (UiRect, UiRect) {
+    let track = UiRect::new(
+        rects.piano_grid.x - PIANO_VIEWPORT_INDICATOR_THICKNESS - 4.0,
+        rects.piano_grid.y,
+        PIANO_VIEWPORT_INDICATOR_THICKNESS,
+        rects.piano_grid.height,
+    );
+    let total_pitches = (PIANO_MAX_PITCH - PIANO_MIN_PITCH + 1).max(1) as f32;
+    let visible_pitches = (rects.max_pitch - rects.min_pitch + 1).max(1) as f32;
+    let thumb_height = (track.height * visible_pitches / total_pitches)
+        .max(PIANO_VIEWPORT_INDICATOR_MIN_THUMB.min(track.height))
+        .min(track.height);
+    let top_fraction = ((PIANO_MAX_PITCH - rects.max_pitch) as f32 / total_pitches).clamp(0.0, 1.0);
+    let thumb_y = (track.y + track.height * top_fraction)
+        .clamp(track.y, (track.bottom() - thumb_height).max(track.y));
+    (
+        track,
+        UiRect::new(track.x, thumb_y, track.width, thumb_height),
+    )
+}
+
+pub(super) fn piano_pitch_viewport_indicator_hit_rect(rects: SurfaceRects) -> UiRect {
+    let (track, _) = piano_pitch_viewport_indicator_rects(rects);
+    UiRect::new(track.x - 5.0, track.y, track.width + 10.0, track.height)
+}
+
+fn draw_loop_boundary_lines(
     primitives: &mut Vec<ScenePrimitive>,
     rect: UiRect,
+    view_start: f32,
+    view_beats: f32,
     loop_beats: f32,
-    quantize_grid: QuantizeGrid,
 ) {
-    let Some(step) = visible_quantize_grid_step(loop_beats, rect.width, quantize_grid) else {
-        return;
-    };
-    let loop_beats = loop_beats.max(1.0);
-    let subdivision_count = (loop_beats / step).ceil() as i32;
-    if subdivision_count > 512 {
-        return;
-    }
-    for index in 1..subdivision_count {
-        let beat = index as f32 * step;
-        if beat >= loop_beats {
-            break;
-        }
-        if (beat - beat.round()).abs() < 0.001 {
-            continue;
-        }
-        let x = rect.x + rect.width * beat / loop_beats;
+    for (boundary, x) in visible_loop_boundary_positions(rect, view_start, view_beats, loop_beats) {
+        let line_color = match boundary {
+            LoopBoundary::Start => color(67, 219, 224),
+            LoopBoundary::End => color(244, 197, 84),
+        };
         push_line(
             primitives,
             UiPoint::new(x, rect.y),
             UiPoint::new(x, rect.bottom()),
-            color(32, 34, 38),
-            1.0,
+            line_color,
+            2.0,
         );
     }
+}
+
+pub(super) fn visible_loop_boundary_positions(
+    rect: UiRect,
+    view_start: f32,
+    view_beats: f32,
+    loop_beats: f32,
+) -> Vec<(LoopBoundary, f32)> {
+    const EPSILON: f32 = 0.001;
+    let loop_beats = loop_beats.max(1.0);
+    let view_start = view_start.clamp(0.0, loop_beats);
+    let view_beats = view_beats.max(1.0);
+    let view_end = (view_start + view_beats).min(loop_beats);
+    let min_x = rect.x + 0.5;
+    let max_x = (rect.right() - 0.5).max(min_x);
+
+    [(LoopBoundary::Start, 0.0), (LoopBoundary::End, loop_beats)]
+        .into_iter()
+        .filter_map(|(boundary, beat)| {
+            if beat < view_start - EPSILON || beat > view_end + EPSILON {
+                return None;
+            }
+            let x = rect.x + rect.width * (beat - view_start) / view_beats;
+            Some((boundary, x.clamp(min_x, max_x)))
+        })
+        .collect()
+}
+
+pub(super) fn loop_end_boundary_hit_rect(rect: UiRect, rects: SurfaceRects) -> Option<UiRect> {
+    let (_, x) = visible_loop_boundary_positions(
+        rect,
+        rects.view_start_beats,
+        rects.view_beats,
+        rects.loop_beats,
+    )
+    .into_iter()
+    .find(|(boundary, _)| *boundary == LoopBoundary::End)?;
+    let width = 14.0_f32.min(rect.width.max(1.0));
+    let x = (x - width * 0.5).clamp(rect.x, (rect.right() - width).max(rect.x));
+    Some(UiRect::new(x, rect.y, width, rect.height))
 }
 
 fn draw_quantize_grid_lines_in_view(
@@ -996,16 +1446,20 @@ pub(super) fn piano_pitch_grid_line_step(row_height: f32) -> i32 {
         .max(1.0) as i32
 }
 
-fn piano_note_color(note: &ClipNote, selected: Option<u64>, preview: bool) -> operad::ColorRgba {
+pub(super) fn piano_note_color(
+    note: &ClipNote,
+    selected: Option<u64>,
+    preview: bool,
+) -> operad::ColorRgba {
     if Some(note.id) == selected {
         return color(255, 182, 92);
     }
     if preview {
-        return fade(color(117, 170, 205), 0.72);
+        return fade(clip_color(), 0.72);
     }
     let velocity = note.velocity as f32 / 127.0;
     let alpha = 0.62 + velocity * 0.28;
-    fade(color(97, 150, 185), alpha)
+    fade(clip_color(), alpha)
 }
 
 fn local_scene_primitives(primitives: Vec<ScenePrimitive>, rect: UiRect) -> Vec<ScenePrimitive> {
@@ -1043,6 +1497,25 @@ fn translate_scene_primitive(primitive: ScenePrimitive, offset: UiPoint) -> Scen
                 .into_iter()
                 .map(|point| translate_point(point, offset))
                 .collect(),
+            fill,
+            stroke,
+        },
+        ScenePrimitive::MorphPolygon {
+            from_points,
+            to_points,
+            amount,
+            fill,
+            stroke,
+        } => ScenePrimitive::MorphPolygon {
+            from_points: from_points
+                .into_iter()
+                .map(|point| translate_point(point, offset))
+                .collect(),
+            to_points: to_points
+                .into_iter()
+                .map(|point| translate_point(point, offset))
+                .collect(),
+            amount,
             fill,
             stroke,
         },

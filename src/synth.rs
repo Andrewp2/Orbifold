@@ -79,13 +79,23 @@ impl Default for SynthSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum AudioCommand {
     NoteOn { note: u32, freq: f32, velocity: f32 },
+    RetuneNote { note: u32, freq: f32 },
     NoteOff { note: u32 },
     AllNotesOff,
     SetSettings(SynthSettings),
     SetMuted(bool),
+    SetSampleInstrument(Option<SamplePreviewBuffer>),
+    PlaySamplePreview(SamplePreviewBuffer),
+    StopSamplePreview,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SamplePreviewBuffer {
+    pub(crate) samples: Arc<[f32]>,
+    pub(crate) sample_rate_hz: u32,
 }
 
 #[derive(Clone)]
@@ -94,6 +104,7 @@ pub(crate) struct SynthHandle {
     active_notes: Arc<Mutex<HashSet<u32>>>,
     active_voice_count: Arc<AtomicUsize>,
     settings: Arc<Mutex<SynthSettings>>,
+    sample_instrument: Arc<Mutex<Option<SamplePreviewBuffer>>>,
     muted: Arc<AtomicBool>,
     output_level: Arc<AtomicU32>,
     output_limited: Arc<AtomicBool>,
@@ -107,6 +118,7 @@ impl SynthHandle {
             active_notes: Arc::new(Mutex::new(HashSet::new())),
             active_voice_count: Arc::new(AtomicUsize::new(0)),
             settings: Arc::new(Mutex::new(SynthSettings::default())),
+            sample_instrument: Arc::new(Mutex::new(None)),
             muted: Arc::new(AtomicBool::new(false)),
             output_level: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
             output_limited: Arc::new(AtomicBool::new(false)),
@@ -120,11 +132,13 @@ impl SynthHandle {
     ) -> (SynthEngine, Receiver<AudioCommand>, Sender<AudioCommand>) {
         let (sender, receiver) = mpsc::channel();
         let settings = *self.settings.lock();
+        let sample_instrument = self.sample_instrument.lock().clone();
         let muted = self.muted.load(Ordering::Relaxed);
         let engine = SynthEngine::new(
             sample_rate,
             self.voice_count,
             settings,
+            sample_instrument,
             muted,
             self.active_voice_count.clone(),
             self.output_level.clone(),
@@ -135,6 +149,13 @@ impl SynthHandle {
 
     pub(crate) fn install_sender(&self, sender: Sender<AudioCommand>) {
         *self.sender.lock() = Some(sender);
+        self.active_notes.lock().clear();
+        self.active_voice_count.store(0, Ordering::Relaxed);
+        self.reset_output_meter();
+    }
+
+    pub(crate) fn clear_sender(&self) {
+        *self.sender.lock() = None;
         self.active_notes.lock().clear();
         self.active_voice_count.store(0, Ordering::Relaxed);
         self.reset_output_meter();
@@ -153,6 +174,14 @@ impl SynthHandle {
         Ok(())
     }
 
+    pub(crate) fn retune_note(&self, note: u32, freq: f32) -> Result<bool, String> {
+        if !self.active_notes.lock().contains(&note) {
+            return Ok(false);
+        }
+        self.send(AudioCommand::RetuneNote { note, freq })?;
+        Ok(true)
+    }
+
     pub(crate) fn note_off(&self, note: u32) -> Result<(), String> {
         self.active_notes.lock().remove(&note);
         self.send(AudioCommand::NoteOff { note })
@@ -161,6 +190,22 @@ impl SynthHandle {
     pub(crate) fn all_notes_off(&self) -> Result<(), String> {
         self.active_notes.lock().clear();
         self.send(AudioCommand::AllNotesOff)
+    }
+
+    pub(crate) fn play_sample_preview(&self, preview: SamplePreviewBuffer) -> Result<(), String> {
+        self.send(AudioCommand::PlaySamplePreview(preview))
+    }
+
+    pub(crate) fn stop_sample_preview(&self) -> Result<(), String> {
+        self.send(AudioCommand::StopSamplePreview)
+    }
+
+    pub(crate) fn set_sample_instrument(
+        &self,
+        sample: Option<SamplePreviewBuffer>,
+    ) -> Result<(), String> {
+        *self.sample_instrument.lock() = sample.clone();
+        self.send(AudioCommand::SetSampleInstrument(sample))
     }
 
     pub(crate) fn set_settings(&self, settings: SynthSettings) -> Result<(), String> {
@@ -220,6 +265,8 @@ struct Voice {
     note: u32,
     freq: f32,
     phase: f32,
+    sample_position: f32,
+    sample_step: f32,
     active: bool,
     last_used: u64,
     amp: f32,
@@ -230,12 +277,21 @@ struct Voice {
     release_step: f32,
 }
 
+#[derive(Clone, Debug)]
+struct SamplePreviewState {
+    samples: Arc<[f32]>,
+    position: f32,
+    step: f32,
+}
+
 impl Default for Voice {
     fn default() -> Self {
         Self {
             note: 0,
             freq: 440.0,
             phase: 0.0,
+            sample_position: 0.0,
+            sample_step: 0.0,
             active: false,
             last_used: 0,
             amp: 0.0,
@@ -253,6 +309,7 @@ pub(crate) struct SynthEngine {
     note_map: HashMap<u32, usize>,
     sample_rate: f32,
     settings: SynthSettings,
+    sample_instrument: Option<SamplePreviewBuffer>,
     muted: bool,
     counter: u64,
     active_voice_count: Arc<AtomicUsize>,
@@ -263,13 +320,16 @@ pub(crate) struct SynthEngine {
     filter_state: f32,
     delay_buffer: Vec<f32>,
     delay_index: usize,
+    sample_preview: Option<SamplePreviewState>,
 }
 
 impl SynthEngine {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         sample_rate: f32,
         voice_count: usize,
         settings: SynthSettings,
+        sample_instrument: Option<SamplePreviewBuffer>,
         muted: bool,
         active_voice_count: Arc<AtomicUsize>,
         output_level: Arc<AtomicU32>,
@@ -280,6 +340,7 @@ impl SynthEngine {
             note_map: HashMap::new(),
             sample_rate,
             settings,
+            sample_instrument,
             muted,
             counter: 1,
             active_voice_count,
@@ -290,6 +351,7 @@ impl SynthEngine {
             filter_state: 0.0,
             delay_buffer: vec![0.0; sample_rate.max(1.0).round() as usize],
             delay_index: 0,
+            sample_preview: None,
         }
     }
 
@@ -300,10 +362,19 @@ impl SynthEngine {
                 freq,
                 velocity,
             } => self.note_on(note, freq, velocity),
+            AudioCommand::RetuneNote { note, freq } => {
+                let _ = self.retune_note(note, freq);
+            }
             AudioCommand::NoteOff { note } => self.note_off(note),
             AudioCommand::AllNotesOff => self.all_notes_off(),
             AudioCommand::SetSettings(settings) => self.settings = settings,
             AudioCommand::SetMuted(muted) => self.muted = muted,
+            AudioCommand::SetSampleInstrument(sample) => {
+                self.sample_instrument = sample;
+                self.clear_voices();
+            }
+            AudioCommand::PlaySamplePreview(preview) => self.play_sample_preview(preview),
+            AudioCommand::StopSamplePreview => self.sample_preview = None,
         }
     }
 
@@ -331,8 +402,19 @@ impl SynthEngine {
             }
 
             active_voices += 1;
-            out += waveform_sample(self.settings.waveform, voice.phase) * voice.amp;
-            voice.phase = (voice.phase + voice.freq / self.sample_rate).fract();
+            let voice_sample = if let Some(sample) = &self.sample_instrument {
+                let Some(sample_value) = next_instrument_sample(voice, sample) else {
+                    voice.active = false;
+                    voice.amp = 0.0;
+                    continue;
+                };
+                sample_value
+            } else {
+                let sample = waveform_sample(self.settings.waveform, voice.phase);
+                voice.phase = (voice.phase + voice.freq / self.sample_rate).fract();
+                sample
+            };
+            out += voice_sample * voice.amp;
         }
 
         if active_voices > 1 {
@@ -341,12 +423,13 @@ impl SynthEngine {
         let filtered = self.filter_sample(out);
         let driven = drive_sample(filtered, self.settings.drive);
         let delayed = self.delay_sample(driven);
+        let preview = self.next_sample_preview();
         let gain = if self.muted {
             0.0
         } else {
             self.settings.master_gain
         };
-        let sample = limit_output_sample(delayed * gain);
+        let sample = limit_output_sample((delayed + preview) * gain);
         self.update_output_meter(sample);
         sample
     }
@@ -375,6 +458,12 @@ impl SynthEngine {
         voice.note = note;
         voice.freq = freq.max(1.0);
         voice.phase = 0.0;
+        voice.sample_position = 0.0;
+        voice.sample_step = sample_step_for_frequency(
+            self.sample_rate,
+            self.sample_instrument.as_ref(),
+            voice.freq,
+        );
         voice.active = true;
         voice.last_used = self.counter;
         voice.amp = if attack_samples == 0 { velocity } else { 0.0 };
@@ -389,6 +478,22 @@ impl SynthEngine {
         voice.release_step = 0.0;
     }
 
+    fn retune_note(&mut self, note: u32, freq: f32) -> bool {
+        let Some(&idx) = self.note_map.get(&note) else {
+            return false;
+        };
+        let Some(voice) = self.voices.get_mut(idx) else {
+            return false;
+        };
+        voice.freq = freq.max(1.0);
+        voice.sample_step = sample_step_for_frequency(
+            self.sample_rate,
+            self.sample_instrument.as_ref(),
+            voice.freq,
+        );
+        true
+    }
+
     fn note_off(&mut self, note: u32) {
         if let Some(idx) = self.note_map.remove(&note)
             && let Some(voice) = self.voices.get_mut(idx)
@@ -401,12 +506,45 @@ impl SynthEngine {
     }
 
     fn all_notes_off(&mut self) {
+        self.clear_voices();
+        self.sample_preview = None;
+    }
+
+    fn clear_voices(&mut self) {
         self.note_map.clear();
         for voice in &mut self.voices {
             voice.active = false;
             voice.amp = 0.0;
             voice.release_remaining = 0;
         }
+    }
+
+    fn play_sample_preview(&mut self, preview: SamplePreviewBuffer) {
+        if preview.samples.is_empty() {
+            self.sample_preview = None;
+            return;
+        }
+        self.sample_preview = Some(SamplePreviewState {
+            samples: preview.samples,
+            position: 0.0,
+            step: preview.sample_rate_hz.max(1) as f32 / self.sample_rate.max(1.0),
+        });
+    }
+
+    fn next_sample_preview(&mut self) -> f32 {
+        let Some(preview) = self.sample_preview.as_mut() else {
+            return 0.0;
+        };
+        let idx = preview.position.floor() as usize;
+        if idx >= preview.samples.len() {
+            self.sample_preview = None;
+            return 0.0;
+        }
+        let next_idx = (idx + 1).min(preview.samples.len().saturating_sub(1));
+        let fraction = preview.position - idx as f32;
+        let sample = preview.samples[idx] * (1.0 - fraction) + preview.samples[next_idx] * fraction;
+        preview.position += preview.step.max(f32::EPSILON);
+        sample.clamp(-1.0, 1.0)
     }
 
     fn update_output_meter(&mut self, sample: f32) {
@@ -482,6 +620,19 @@ fn samples_for_ms(sample_rate: f32, ms: f32) -> u32 {
     (sample_rate * (ms / 1000.0)).round().max(0.0) as u32
 }
 
+fn sample_step_for_frequency(
+    sample_rate: f32,
+    sample: Option<&SamplePreviewBuffer>,
+    freq: f32,
+) -> f32 {
+    sample
+        .map(|sample| {
+            let source_to_output = sample.sample_rate_hz.max(1) as f32 / sample_rate.max(1.0);
+            source_to_output * (freq / 440.0).max(0.01)
+        })
+        .unwrap_or(0.0)
+}
+
 fn waveform_sample(waveform: Waveform, phase: f32) -> f32 {
     match waveform {
         Waveform::Sine => (phase * TAU).sin(),
@@ -495,6 +646,18 @@ fn waveform_sample(waveform: Waveform, phase: f32) -> f32 {
             }
         }
     }
+}
+
+fn next_instrument_sample(voice: &mut Voice, sample: &SamplePreviewBuffer) -> Option<f32> {
+    let idx = voice.sample_position.floor() as usize;
+    if idx >= sample.samples.len() {
+        return None;
+    }
+    let next_idx = (idx + 1).min(sample.samples.len().saturating_sub(1));
+    let fraction = voice.sample_position - idx as f32;
+    let value = sample.samples[idx] * (1.0 - fraction) + sample.samples[next_idx] * fraction;
+    voice.sample_position += voice.sample_step.max(f32::EPSILON);
+    Some(value.clamp(-1.0, 1.0))
 }
 
 fn drive_sample(sample: f32, drive: f32) -> f32 {
@@ -526,6 +689,7 @@ mod tests {
             44_100.0,
             4,
             settings,
+            None,
             false,
             Arc::new(AtomicUsize::new(0)),
             Arc::new(AtomicU32::new(0.0_f32.to_bits())),
@@ -544,6 +708,46 @@ mod tests {
 
         engine.handle_command(AudioCommand::SetMuted(false));
         assert!((0..64).any(|_| engine.next_sample().abs() > 0.0001));
+    }
+
+    #[test]
+    fn retuning_active_note_updates_frequency_without_retriggering_voice() {
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            attack_ms: 0.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        let mut engine = SynthEngine::new(
+            44_100.0,
+            4,
+            settings,
+            None,
+            false,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 69,
+            freq: 440.0,
+            velocity: 0.75,
+        });
+        let _ = engine.next_sample();
+        let idx = *engine.note_map.get(&69).expect("note should be active");
+        let phase = engine.voices[idx].phase;
+        let amp = engine.voices[idx].amp;
+
+        engine.handle_command(AudioCommand::RetuneNote {
+            note: 69,
+            freq: 880.0,
+        });
+
+        let voice = &engine.voices[idx];
+        assert_eq!(voice.freq, 880.0);
+        assert_eq!(voice.phase, phase);
+        assert_eq!(voice.amp, amp);
     }
 
     #[test]
@@ -579,6 +783,126 @@ mod tests {
         for sample in [-2.0_f32, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0] {
             assert!((drive_sample(sample, 1.0) - sample).abs() <= f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn sample_preview_outputs_audio_and_can_stop() {
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        let mut engine = SynthEngine::new(
+            48_000.0,
+            4,
+            settings,
+            None,
+            false,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        engine.handle_command(AudioCommand::PlaySamplePreview(SamplePreviewBuffer {
+            samples: Arc::from([0.5_f32, 0.5, 0.5].as_slice()),
+            sample_rate_hz: 48_000,
+        }));
+
+        assert!(engine.next_sample() > 0.1);
+
+        engine.handle_command(AudioCommand::StopSamplePreview);
+
+        assert!(engine.next_sample().abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    fn sample_instrument_plays_notes_from_loaded_buffer() {
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            attack_ms: 0.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        let mut engine = SynthEngine::new(
+            48_000.0,
+            4,
+            settings,
+            Some(SamplePreviewBuffer {
+                samples: Arc::from([0.75_f32, 0.75, 0.75].as_slice()),
+                sample_rate_hz: 48_000,
+            }),
+            false,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 69,
+            freq: 440.0,
+            velocity: 1.0,
+        });
+
+        assert!(engine.next_sample() > 0.5);
+    }
+
+    #[test]
+    fn sample_instrument_pitch_tracks_note_frequency() {
+        let settings = SynthSettings {
+            master_gain: 1.0,
+            attack_ms: 0.0,
+            delay_mix: 0.0,
+            ..SynthSettings::default()
+        };
+        let mut engine = SynthEngine::new(
+            48_000.0,
+            4,
+            settings,
+            Some(SamplePreviewBuffer {
+                samples: Arc::from([1.0_f32, 0.75, 0.5, 0.25, 0.0].as_slice()),
+                sample_rate_hz: 48_000,
+            }),
+            false,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicU32::new(0.0_f32.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 81,
+            freq: 880.0,
+            velocity: 1.0,
+        });
+
+        let first = engine.next_sample();
+        let second = engine.next_sample();
+        assert!(
+            first > 0.5,
+            "first pitched sample should be audible: {first}"
+        );
+        assert!(
+            second < first,
+            "octave-up playback should advance through the source buffer: {first} then {second}"
+        );
+    }
+
+    #[test]
+    fn synth_handle_keeps_sample_instrument_for_new_engines() {
+        let synth = SynthHandle::new(4);
+        synth
+            .set_sample_instrument(Some(SamplePreviewBuffer {
+                samples: Arc::from(vec![0.6_f32; 1024].into_boxed_slice()),
+                sample_rate_hz: 48_000,
+            }))
+            .unwrap();
+        let (mut engine, _receiver, _sender) = synth.make_engine(48_000.0);
+        engine.handle_command(AudioCommand::NoteOn {
+            note: 69,
+            freq: 440.0,
+            velocity: 1.0,
+        });
+
+        assert!((0..512).any(|_| engine.next_sample() > 0.1));
     }
 
     #[test]

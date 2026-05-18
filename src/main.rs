@@ -3,18 +3,19 @@ mod audio;
 mod logging;
 mod midi;
 mod project;
+mod sample_preview;
 mod scala;
 mod scale;
 mod settings;
 mod synth;
+mod time;
 mod ui;
 
-use cpal::traits::StreamTrait;
 use parking_lot::Mutex;
 use std::sync::{Arc, mpsc::Sender};
 
 use crate::app::AppState;
-use crate::audio::{AudioStreamInfo, build_audio_stream};
+use crate::audio::{AudioStream, AudioStreamInfo, build_audio_stream};
 use crate::midi::{
     MIDI_CHANNEL_FILTER_ALL, MidiCapture, SharedMidiCapture, SharedMidiChannelFilter,
     SharedMidiHeld, SharedMidiLast, SharedMidiLog, SharedMidiSustain,
@@ -25,7 +26,7 @@ use crate::settings::AppSettings;
 use crate::synth::{AudioCommand, SynthHandle};
 
 type AudioBuildResult =
-    Result<(cpal::Stream, String, Sender<AudioCommand>, AudioStreamInfo), String>;
+    Result<(AudioStream, String, Sender<AudioCommand>, AudioStreamInfo), String>;
 
 fn main() -> Result<(), String> {
     logging::init();
@@ -87,12 +88,12 @@ struct AppStartupOptions {
 
 fn build_app_state(options: AppStartupOptions) -> AppState {
     let settings_path = AppSettings::default_path();
-    let (settings, mut startup_status) = match AppSettings::load(&settings_path) {
-        Ok(settings) => (settings, None),
+    let (settings, settings_loaded, mut startup_status) = match AppSettings::load(&settings_path) {
+        Ok(settings) => (settings, true, None),
         Err(err) => {
             let message = format!("Settings load error: {err}");
             log::error!("{message}; using default settings");
-            (AppSettings::default(), Some(message))
+            (AppSettings::default(), false, Some(message))
         }
     };
 
@@ -145,6 +146,7 @@ fn build_app_state(options: AppStartupOptions) -> AppState {
         startup_status,
         options.probe_audio,
         options.probe_midi,
+        should_persist_startup_settings(options, settings_loaded),
     )
 }
 
@@ -154,7 +156,7 @@ fn build_startup_audio(
     startup_status: &mut Option<String>,
     synth: &SynthHandle,
     mut build_audio: impl FnMut(&SynthHandle, Option<&str>) -> AudioBuildResult,
-) -> (Option<cpal::Stream>, String, Option<AudioStreamInfo>) {
+) -> (Option<AudioStream>, String, Option<AudioStreamInfo>) {
     if probe_audio {
         let requested_audio = settings.audio_output_name.as_deref();
         let audio_build = match build_audio(synth, requested_audio) {
@@ -203,6 +205,10 @@ fn append_status(status: &mut Option<String>, message: String) {
     });
 }
 
+fn should_persist_startup_settings(options: AppStartupOptions, settings_loaded: bool) -> bool {
+    settings_loaded && options.probe_audio && options.probe_midi
+}
+
 fn fatal(message: String) -> ! {
     log::error!("{message}");
     panic!("{message}");
@@ -244,6 +250,7 @@ mod tests {
         assert!(app.audio_outputs.is_empty());
         assert!(app.midi_connection.is_none());
         assert!(app.midi_inputs.is_empty());
+        assert!(app.show_device_panel);
         assert!(
             app.last_status
                 .contains("Screenshot mode: audio hardware probing skipped")
@@ -252,6 +259,35 @@ mod tests {
             app.last_status
                 .contains("Screenshot mode: MIDI hardware probing skipped")
         );
+        assert!(
+            app.last_status
+                .contains("Device setup required: audio unavailable; MIDI unavailable")
+        );
+    }
+
+    #[test]
+    fn startup_persists_settings_only_after_successful_load_and_full_probe() {
+        assert!(should_persist_startup_settings(
+            AppStartupOptions {
+                probe_audio: true,
+                probe_midi: true,
+            },
+            true,
+        ));
+        assert!(!should_persist_startup_settings(
+            AppStartupOptions {
+                probe_audio: true,
+                probe_midi: true,
+            },
+            false,
+        ));
+        assert!(!should_persist_startup_settings(
+            AppStartupOptions {
+                probe_audio: false,
+                probe_midi: false,
+            },
+            true,
+        ));
     }
 
     #[test]

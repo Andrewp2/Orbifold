@@ -27,14 +27,92 @@ pub(super) fn add_button_at_with_visible_label(
     active: bool,
     enabled: bool,
 ) {
+    add_button_at_with_visible_label_and_padding(
+        document,
+        name,
+        label,
+        visible_label.map(Into::into),
+        rect,
+        ButtonChrome {
+            active,
+            enabled,
+            padding: None,
+        },
+    );
+}
+
+pub(super) fn add_compact_button_at(
+    document: &mut UiDocument,
+    name: impl Into<String>,
+    label: impl Into<String>,
+    rect: UiRect,
+    active: bool,
+    enabled: bool,
+) {
+    add_button_at_with_visible_label_and_padding(
+        document,
+        name,
+        label,
+        None,
+        rect,
+        ButtonChrome {
+            active,
+            enabled,
+            padding: Some(6.0),
+        },
+    );
+}
+
+pub(super) fn add_compact_button_at_with_visible_label(
+    document: &mut UiDocument,
+    name: impl Into<String>,
+    label: impl Into<String>,
+    visible_label: impl Into<String>,
+    rect: UiRect,
+    active: bool,
+    enabled: bool,
+) {
+    add_button_at_with_visible_label_and_padding(
+        document,
+        name,
+        label,
+        Some(visible_label.into()),
+        rect,
+        ButtonChrome {
+            active,
+            enabled,
+            padding: Some(6.0),
+        },
+    );
+}
+
+#[derive(Clone, Copy)]
+struct ButtonChrome {
+    active: bool,
+    enabled: bool,
+    padding: Option<f32>,
+}
+
+fn add_button_at_with_visible_label_and_padding(
+    document: &mut UiDocument,
+    name: impl Into<String>,
+    label: impl Into<String>,
+    visible_label: Option<String>,
+    rect: UiRect,
+    chrome: ButtonChrome,
+) {
     let name = name.into();
     let label = label.into();
-    let visible_label = visible_label
-        .map(Into::into)
-        .unwrap_or_else(|| label.clone());
+    let visible_label = visible_label.unwrap_or_else(|| label.clone());
     let fitted_label = fit_label(&visible_label, rect.width - 8.0, 12.0);
-    let options = button_options(&name, &label, rect, active, enabled);
-    widgets::button(document, document.root, name, fitted_label, options);
+    let mut options = button_options(&name, &label, rect, chrome.active, chrome.enabled);
+    if let Some(padding) = chrome.padding {
+        options.layout = options.layout.with_padding(padding);
+    }
+    widgets::button(document, document.root, name.clone(), fitted_label, options);
+    if !chrome.enabled {
+        add_disabled_control_blocker_at(document, format!("{name}.disabled_hit"), rect);
+    }
 }
 
 pub(super) fn add_toggle_button_at(
@@ -58,11 +136,14 @@ pub(super) fn add_toggle_button_at(
     widgets::toggle_button(
         document,
         document.root,
-        name,
+        name.clone(),
         fitted_label,
         selected,
         options,
     );
+    if !enabled {
+        add_disabled_control_blocker_at(document, format!("{name}.disabled_hit"), rect);
+    }
 }
 
 pub(super) fn add_selectable_at(
@@ -103,7 +184,10 @@ pub(super) fn add_selectable_at(
         options.action = Some(WidgetActionBinding::action(name.clone()));
     }
     options.accessibility_label = Some(button_accessibility_label(&name, &label));
-    widgets::selectable_label(document, document.root, name, fitted_label, options);
+    widgets::selectable_label(document, document.root, name.clone(), fitted_label, options);
+    if !enabled {
+        add_disabled_control_blocker_at(document, format!("{name}.disabled_hit"), rect);
+    }
 }
 
 pub(super) fn add_label_at(
@@ -235,7 +319,27 @@ fn add_hit_at_with_mode(
     })
     .with_action(WidgetActionBinding::action(name.clone()))
     .with_action_mode(action_mode)
-    .with_accessibility(AccessibilityMeta::new(AccessibilityRole::Group).hidden());
+    .with_accessibility(AccessibilityMeta::new(AccessibilityRole::Group));
 
     document.add_child(parent, hit_target);
+}
+
+fn add_disabled_control_blocker_at(
+    document: &mut UiDocument,
+    name: impl Into<String>,
+    rect: UiRect,
+) {
+    let blocker = UiNode::container(
+        name.into(),
+        layout::absolute(rect.x, rect.y, rect.width, rect.height),
+    )
+    .with_visual(UiVisual::TRANSPARENT)
+    .with_input(InputBehavior {
+        pointer: true,
+        focusable: false,
+        keyboard: false,
+    })
+    .with_accessibility(AccessibilityMeta::new(AccessibilityRole::Group).hidden());
+
+    document.add_child(document.root, blocker);
 }

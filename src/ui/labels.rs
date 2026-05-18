@@ -9,6 +9,16 @@ pub(super) fn selected_midi_input_name(app: &AppState) -> String {
     device_label_with_position(label, "MIDI", app.selected_input, app.midi_inputs.len())
 }
 
+pub(super) fn midi_input_diagnostic_label(app: &AppState) -> String {
+    device_diagnostic_label(
+        app.midi_inputs.get(app.selected_input).map(String::as_str),
+        &app.connected_midi_input,
+        app.midi_connection.is_some(),
+        None,
+        "Refresh to scan MIDI",
+    )
+}
+
 pub(super) fn midi_input_status_label(
     connected: bool,
     selected_input: Option<&str>,
@@ -69,6 +79,20 @@ pub(super) fn selected_audio_output_name(app: &AppState) -> String {
     )
 }
 
+pub(super) fn audio_output_diagnostic_label(app: &AppState) -> String {
+    let selected_output = app
+        .audio_outputs
+        .get(app.selected_audio_output)
+        .map(|device| device.name.as_str());
+    device_diagnostic_label(
+        selected_output,
+        &app.connected_audio_output,
+        app.audio_stream.is_some(),
+        app.audio_stream_info.as_ref().map(audio_stream_info_label),
+        "Refresh to scan audio",
+    )
+}
+
 pub(super) fn audio_output_status_label(
     connected: bool,
     selected_device: Option<&str>,
@@ -92,6 +116,36 @@ pub(super) fn audio_output_status_label(
         label = format!("{label} {}", audio_stream_info_label(info));
     }
     label
+}
+
+fn device_diagnostic_label(
+    selected_device: Option<&str>,
+    connected_device: &str,
+    connected: bool,
+    stream_info: Option<String>,
+    empty_message: &'static str,
+) -> String {
+    let Some(selected) = selected_device else {
+        return empty_message.to_string();
+    };
+    let selected = compact_label(selected, 12);
+    let connected_name =
+        (!connected_device.is_empty()).then(|| compact_label(connected_device, 12));
+    if connected {
+        if let Some(info) = stream_info {
+            return format!("Live: {info}");
+        }
+        return match connected_name {
+            Some(name) if name != selected => format!("Live {name}; select {selected}"),
+            Some(name) => format!("Live: {name}"),
+            None => format!("Live: {selected}"),
+        };
+    }
+    match connected_name {
+        Some(name) if name != selected => format!("Off {name}; select {selected}"),
+        Some(name) => format!("Off: {name}"),
+        None => format!("Select {selected}; Connect"),
+    }
 }
 
 pub(super) fn device_status_label(
@@ -144,32 +198,23 @@ pub(super) fn selected_name_matches_connected(
 }
 
 pub(super) fn midi_event_label(event: &crate::midi::MidiEvent) -> String {
+    let remapped_note = event.musical_note != event.midi_note as i32;
     let tuned = match (
         event.scale_degree,
         event.scale_octave,
         event.cents_from_root,
     ) {
-        (Some(degree), Some(octave), Some(cents)) => {
+        (Some(degree), Some(octave), Some(cents)) if !remapped_note => {
             format!(" D{degree} O{octave} {cents:+.0}c")
         }
         _ => String::new(),
     };
     let event_data = match event.status {
-        0x80 => format!(
-            "off {} ({}) vel{}",
-            midi_note_name(event.musical_note),
-            event.musical_note,
-            event.velocity
-        ),
-        0x90 if event.velocity == 0 => format!(
-            "off {} ({}) vel0",
-            midi_note_name(event.musical_note),
-            event.musical_note
-        ),
+        0x80 => format!("off {} vel{}", midi_event_note_label(event), event.velocity),
+        0x90 if event.velocity == 0 => format!("off {} vel0", midi_event_note_label(event)),
         0x90 => format!(
-            "note {} ({}) vel{}",
-            midi_note_name(event.musical_note),
-            event.musical_note,
+            "note {} vel{}",
+            midi_event_note_label(event),
             event.velocity
         ),
         0xB0 => midi_control_change_label(event.midi_note, event.velocity),
@@ -185,30 +230,55 @@ pub(super) fn midi_event_label(event: &crate::midi::MidiEvent) -> String {
     )
 }
 
+fn midi_event_note_label(event: &crate::midi::MidiEvent) -> String {
+    if event.musical_note == event.midi_note as i32 {
+        return format!(
+            "{} ({})",
+            midi_note_name(event.musical_note),
+            event.musical_note
+        );
+    }
+    let tuned = match (event.scale_degree, event.cents_from_root) {
+        (Some(degree), Some(cents)) => format!("d{} {cents:+.0}c", degree + 1),
+        _ => midi_note_name(event.musical_note),
+    };
+    format!(
+        "{}->{tuned} ({})",
+        midi_note_name(event.midi_note as i32),
+        event.musical_note
+    )
+}
+
 fn midi_control_change_label(controller: u8, value: u8) -> String {
     match controller {
-        1 => format!("mod wheel value{value}"),
-        7 => format!("volume value{value}"),
-        10 => format!("pan value{value}"),
-        11 => format!("expression value{value}"),
+        1 => format!("mod wheel ignored value{value}"),
+        7 => format!("volume ignored value{value}"),
+        10 => format!("pan ignored value{value}"),
+        11 => format!("expression ignored value{value}"),
         64 => format!(
             "sustain {} value{value}",
             if value >= 64 { "on" } else { "off" }
         ),
-        _ => format!("cc{controller} value{value}"),
+        _ => format!("cc{controller} ignored value{value}"),
     }
 }
 
 fn midi_pitch_bend_label(lsb: u8, msb: u8) -> String {
     let value = (((msb as u16) << 7) | lsb as u16) as i32 - 8_192;
-    format!("bend {value:+}")
+    format!("bend {value:+} ignored")
 }
 
 pub(super) fn lumatone_map_label(app: &AppState) -> String {
+    if let Some(warning) = app.keymap_scale_mismatch_warning() {
+        return compact_label(&warning, 42);
+    }
     let map = app.lumatone_map.lock().clone();
     let Some(map) = map else {
         return "Key map none".to_string();
     };
+    if !app.midi_inputs.is_empty() && !app.selected_midi_input_uses_lumatone_map() {
+        return "Key map inactive".to_string();
+    }
     let (name, missing) = app
         .lumatone_path
         .as_ref()
@@ -239,7 +309,7 @@ pub(super) fn pitch_label(app: &AppState, pitch: i32) -> String {
     let Some(info) = scale.note_info(pitch) else {
         return pitch.to_string();
     };
-    if scale.scale.steps.len() == 12 {
+    if scale.scale.steps.len() == 12 && !app.piano_pitch_labels_show_degrees() {
         midi_note_name(pitch)
     } else {
         format!("d{} {:+.0}c", info.degree + 1, info.cents_from_root)

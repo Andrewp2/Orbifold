@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Orbifold
+GenericName=Microtonal music workstation
+Comment=Compose, record, and edit microtonal MIDI phrases
+Exec=orbifold
+Icon=orbifold
+Terminal=false
+Categories=AudioVideo;Audio;Music;Midi;
+Keywords=microtonal;MIDI;Lumatone;Scala;music;
+StartupWMClass=Orbifold

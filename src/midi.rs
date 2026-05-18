@@ -1,3 +1,4 @@
+#[cfg(feature = "native-app")]
 use midir::MidiInput;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -6,11 +7,11 @@ use std::sync::{
     Arc,
     atomic::{AtomicI8, Ordering},
 };
-use std::time::Instant;
 
 use crate::project::SharedMusicProject;
 use crate::scale::ScaleState;
 use crate::synth::SynthHandle;
+use crate::time::AppInstant;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MidiEvent {
@@ -26,7 +27,7 @@ pub(crate) struct MidiEvent {
     pub(crate) scale_degree: Option<usize>,
     pub(crate) scale_octave: Option<i32>,
     pub(crate) cents_from_root: Option<f32>,
-    pub(crate) at: Instant,
+    pub(crate) at: AppInstant,
 }
 
 pub(crate) type SharedMidiLast = Arc<Mutex<Option<MidiEvent>>>;
@@ -38,6 +39,10 @@ pub(crate) type SharedMidiChannelFilter = Arc<AtomicI8>;
 pub(crate) const MIDI_CHANNEL_FILTER_ALL: i8 = -1;
 const LUMATONE_KEYS_PER_BOARD: usize = 56;
 pub(crate) type SharedLumatoneMap = Arc<Mutex<Option<Arc<LumatoneMap>>>>;
+#[cfg(feature = "native-app")]
+pub(crate) type MidiInputConnectionHandle = midir::MidiInputConnection<()>;
+#[cfg(not(feature = "native-app"))]
+pub(crate) struct MidiInputConnectionHandle;
 
 #[derive(Clone)]
 pub(crate) struct MidiSharedState {
@@ -79,6 +84,7 @@ pub(crate) fn midi_channel_filter_allows(filter: i8, channel: u8) -> bool {
 pub(crate) struct MidiSustainState {
     down_channels: HashSet<u8>,
     sustained_notes: HashSet<(u8, u32)>,
+    sustained_events: HashMap<(u8, u32), MidiEvent>,
 }
 
 impl MidiSustainState {
@@ -95,24 +101,57 @@ impl MidiSustainState {
             .collect::<Vec<_>>();
         self.sustained_notes
             .retain(|(note_channel, _)| *note_channel != channel);
+        self.sustained_events
+            .retain(|(note_channel, _), _| *note_channel != channel);
         notes
     }
 
     fn note_on(&mut self, channel: u8, note: u32) {
         self.sustained_notes.remove(&(channel, note));
+        self.sustained_events.remove(&(channel, note));
     }
 
     pub(crate) fn defer_note_off(&mut self, channel: u8, note: u32) -> bool {
+        self.defer_note_off_with_event(channel, note, None)
+    }
+
+    pub(crate) fn defer_note_off_event(
+        &mut self,
+        channel: u8,
+        note: u32,
+        event: MidiEvent,
+    ) -> bool {
+        self.defer_note_off_with_event(channel, note, Some(event))
+    }
+
+    fn defer_note_off_with_event(
+        &mut self,
+        channel: u8,
+        note: u32,
+        event: Option<MidiEvent>,
+    ) -> bool {
         if !self.down_channels.contains(&channel) {
             return false;
         }
         self.sustained_notes.insert((channel, note));
+        if let Some(event) = event {
+            self.sustained_events.insert((channel, note), event);
+        }
         true
     }
 
     pub(crate) fn clear(&mut self) {
         self.down_channels.clear();
         self.sustained_notes.clear();
+        self.sustained_events.clear();
+    }
+
+    pub(crate) fn any_down(&self) -> bool {
+        !self.down_channels.is_empty()
+    }
+
+    pub(crate) fn sustained_events(&self) -> Vec<MidiEvent> {
+        self.sustained_events.values().cloned().collect()
     }
 }
 
@@ -160,6 +199,7 @@ impl MidiCapture {
     }
 }
 
+#[cfg(feature = "native-app")]
 pub(crate) fn list_midi_inputs() -> Vec<String> {
     let midi_in = MidiInput::new("orbifold");
     let midi_in = match midi_in {
@@ -172,14 +212,19 @@ pub(crate) fn list_midi_inputs() -> Vec<String> {
     midi_in
         .ports()
         .iter()
-        .map(|p| match midi_in.port_name(p) {
-            Ok(name) => name,
+        .filter_map(|p| match midi_in.port_name(p) {
+            Ok(name) => Some(name),
             Err(err) => {
-                log::error!("Failed to read MIDI input port name: {err}; using Unknown");
-                "Unknown".to_string()
+                log::error!("Failed to read MIDI input port name: {err}; skipping unreadable port");
+                None
             }
         })
         .collect()
+}
+
+#[cfg(not(feature = "native-app"))]
+pub(crate) fn list_midi_inputs() -> Vec<String> {
+    Vec::new()
 }
 
 pub(crate) fn handle_midi(
@@ -197,7 +242,7 @@ pub(crate) fn handle_midi(
     let channel = raw_status & 0x0F;
     let midi_note = message[1];
     let velocity = message[2];
-    let now = Instant::now();
+    let now = AppInstant::now();
     if debug_log {
         log::debug!("MIDI {raw_status:02X} {midi_note:02X} {velocity:02X}");
     }
@@ -209,11 +254,14 @@ pub(crate) fn handle_midi(
         .map(|key| key as i32);
     let mapped_from_lumatone = mapped_key.is_some();
     let key_index = mapped_key.unwrap_or(midi_note as i32);
-    let musical_note = midi_note as i32;
-
-    let note_info = {
+    let (musical_note, note_info) = {
         let scale = scale_state.lock();
-        scale.note_info(musical_note)
+        let musical_note = if mapped_from_lumatone {
+            midi_note as i32
+        } else {
+            scale.musical_note_for_midi_note(midi_note as i32)
+        };
+        (musical_note, scale.note_info(musical_note))
     };
 
     let event = MidiEvent {
@@ -248,11 +296,14 @@ pub(crate) fn handle_midi(
     let is_note_on = event.is_note_on();
     let is_note_off = event.is_note_off();
     let held_key = (event.key_index, event.channel, event.midi_note);
-    if is_note_on {
+    let released_held_event = if is_note_on {
         midi_state.held.lock().insert(held_key, event.clone());
+        None
     } else if is_note_off {
-        midi_state.held.lock().remove(&held_key);
-    }
+        midi_state.held.lock().remove(&held_key)
+    } else {
+        None
+    };
     midi_state.music_project.lock().record_midi_event(&event);
 
     if event.is_sustain_on() {
@@ -274,14 +325,21 @@ pub(crate) fn handle_midi(
                 log::error!("Audio command error while starting MIDI note {key_index}: {err}");
             }
         }
-    } else if is_note_off
-        && !midi_state
-            .sustain
-            .lock()
-            .defer_note_off(channel, key_index as u32)
-        && let Err(err) = synth.note_off(key_index as u32)
-    {
-        log::error!("Audio command error while stopping MIDI note {key_index}: {err}");
+    } else if is_note_off {
+        let deferred = match released_held_event {
+            Some(held_event) => midi_state.sustain.lock().defer_note_off_event(
+                channel,
+                key_index as u32,
+                held_event,
+            ),
+            None => midi_state
+                .sustain
+                .lock()
+                .defer_note_off(channel, key_index as u32),
+        };
+        if !deferred && let Err(err) = synth.note_off(key_index as u32) {
+            log::error!("Audio command error while stopping MIDI note {key_index}: {err}");
+        }
     }
 }
 
@@ -319,7 +377,7 @@ pub(crate) fn load_lumatone_map(path: &Path) -> Result<LumatoneMap, String> {
     parse_lumatone_map_contents(&data)
 }
 
-fn parse_lumatone_map_contents(data: &str) -> Result<LumatoneMap, String> {
+pub(crate) fn parse_lumatone_map_contents(data: &str) -> Result<LumatoneMap, String> {
     let mut notes: HashMap<usize, u8> = HashMap::new();
     let mut chans: HashMap<usize, u8> = HashMap::new();
     let mut colors: HashMap<usize, [u8; 3]> = HashMap::new();
@@ -599,6 +657,64 @@ Col_0=XYZ
         assert_eq!(event.scale_degree, Some(0));
         assert_eq!(event.freq, Some(440.0));
         assert_eq!(synth.active_notes(), vec![23]);
+    }
+
+    #[test]
+    fn normal_midi_keyboard_maps_chromatic_notes_to_active_scale_degrees() {
+        let scale_state = Arc::new(Mutex::new(ScaleState {
+            scale: crate::scale::ScalaScale {
+                description: "31-EDO".to_string(),
+                steps: (0..31).map(|i| 2.0_f32.powf(i as f32 / 31.0)).collect(),
+            },
+            root_midi: 69,
+            base_freq: 440.0,
+        }));
+        let synth = SynthHandle::new(4);
+        let midi_last = Arc::new(Mutex::new(None));
+        let midi_log = Arc::new(Mutex::new(Vec::new()));
+        let midi_capture = Arc::new(Mutex::new(MidiCapture::default()));
+        let midi_held = Arc::new(Mutex::new(HashMap::new()));
+        let midi_sustain = Arc::new(Mutex::new(MidiSustainState::default()));
+        let music_project = Arc::new(Mutex::new(MusicProject::default()));
+        let lumatone_map = Arc::new(Mutex::new(None));
+        let midi_state = MidiSharedState {
+            last: midi_last,
+            log: midi_log.clone(),
+            capture: midi_capture,
+            held: midi_held,
+            sustain: midi_sustain,
+            channel_filter: Arc::new(AtomicI8::new(MIDI_CHANNEL_FILTER_ALL)),
+            lumatone_map,
+            music_project,
+        };
+
+        for midi_note in [72, 76, 79] {
+            handle_midi(
+                &[0x90, midi_note, 100],
+                &scale_state,
+                &synth,
+                &midi_state,
+                false,
+            );
+        }
+
+        let events = midi_log.lock().clone();
+        let mapped_notes = events
+            .iter()
+            .map(|event| event.musical_note)
+            .collect::<Vec<_>>();
+        let mapped_degrees = events
+            .iter()
+            .map(|event| event.scale_degree)
+            .collect::<Vec<_>>();
+        assert_eq!(mapped_notes, vec![77, 87, 95]);
+        assert_eq!(mapped_degrees, vec![Some(8), Some(18), Some(26)]);
+        assert!((events[0].freq.expect("C5 should have a frequency") - 523.2511).abs() < 4.0);
+        assert!((events[1].freq.expect("E5 should have a frequency") - 659.2551).abs() < 4.0);
+        assert!((events[2].freq.expect("G5 should have a frequency") - 783.9908).abs() < 4.0);
+        let mut active_notes = synth.active_notes();
+        active_notes.sort_unstable();
+        assert_eq!(active_notes, vec![72, 76, 79]);
     }
 
     #[test]
