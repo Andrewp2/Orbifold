@@ -37,6 +37,7 @@ const chrome = spawn(
     "--remote-debugging-port=0",
     "--enable-unsafe-webgpu",
     "--ignore-gpu-blocklist",
+    "--disable-dev-shm-usage",
     "--no-first-run",
     "--no-default-browser-check",
     "--no-sandbox",

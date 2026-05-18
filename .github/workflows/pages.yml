@@ -97,4 +97,11 @@ jobs:
           ./scripts/check-web-live.mjs "${{ steps.deployment.outputs.page_url }}"
 
       - name: Smoke test deployed Pages app
-        run: ./scripts/check-web-smoke.mjs "${{ steps.deployment.outputs.page_url }}"
+        run: |
+          for _ in {1..3}; do
+            if ./scripts/check-web-smoke.mjs "${{ steps.deployment.outputs.page_url }}"; then
+              exit 0
+            fi
+            sleep 3
+          done
+          ./scripts/check-web-smoke.mjs "${{ steps.deployment.outputs.page_url }}"

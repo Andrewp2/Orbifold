@@ -61,6 +61,7 @@ fn pages_workflow_builds_and_deploys_dist() {
         "python3 -m http.server 4173 --directory dist",
         "./scripts/check-web-dist.mjs dist",
         "./scripts/check-web-smoke.mjs http://127.0.0.1:4173/",
+        "for _ in {1..3}; do",
         "actions/configure-pages@v5",
         "actions/upload-pages-artifact@v4",
         "actions/deploy-pages@v4",
@@ -110,6 +111,7 @@ fn web_visual_capture_script_records_browser_layout_evidence() {
         "usage: scripts/capture-web-visuals.mjs <url> [--out screenshots/web]",
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
+        "--disable-dev-shm-usage",
         "compact-1200x760",
         "desktop-1600x1000",
         "hidpi-1920x1080-dpr2",
@@ -185,6 +187,7 @@ fn web_smoke_script_checks_headless_runtime_readiness() {
     for required in [
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
+        "--disable-dev-shm-usage",
         "Runtime.exceptionThrown",
         "Runtime.consoleAPICalled",
         "Network.loadingFailed",
